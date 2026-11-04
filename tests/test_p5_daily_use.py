@@ -103,7 +103,9 @@ async def test_project_then_tasks_then_session_workflow(setup):
     assert "Choose a project" in slack.web.posts[-1][0] and not calls
     await slack.command(None, "!project", "")
     token = next(t for t, i in slack.buttons.tokens.items() if i.kind == "project")
-    _, _, selection = await slack.prepare_interaction(interaction(c.cfg, token, "200.000001"))
+    payload = interaction(c.cfg, token, "200.000001")
+    payload['actions'][0]['action_id'] = 'bridge_project'
+    _, _, selection = await slack.prepare_interaction(payload)
     await selection
     assert slack.selected_project == str(c.cfg.projects[0])
     assert calls == [slack.selected_project] and "chats: 1;" in slack.web.posts[-1][0]

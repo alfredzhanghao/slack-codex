@@ -1,4 +1,4 @@
-# Current architecture — 0.3.0a16 candidate
+# Current architecture — 0.3.0a18 candidate
 
 The Python package in `src/slack_codex_bridge/` is the application. Tests cover
 native RPC/Slack protocol fixtures and Windows lifecycle primitives. Historical
@@ -54,5 +54,8 @@ Existing desktop selection is read-only until explicit confirmation. A short-liv
 snapshot binds the exact desktop/backend creation identities and actual loopback
 TCP peer. Confirmation rechecks versions/hashes and refuses to switch a different
 running worker. It backs up only the previous native connection record; it never
-terminates native processes or replays operations. Private/unavailable transports
+terminates native processes or replays operations. A pinned Windows desktop can
+also use its existing coordination pipe: verify the pipe server's exact desktop
+identity and follow the chat's owner instead of launching another app-server.
+This route has an explicit capability boundary; unsupported private transports
 remain non-connectable. See [instance selection](adaptive-instance-selection.md).

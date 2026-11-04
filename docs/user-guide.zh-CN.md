@@ -82,6 +82,12 @@ bridge-supervisor.exe --deployment C:\physical\deployment.json --operator C:\phy
 
 ## 无人值守本地检查
 
+当前固定版本的 Windows Codex 可选择 **Existing desktop IPC**，确认后复用现有桌面，
+无需关闭或重启。先在 Codex 打开需要控制的聊天，再通过 Slack 接管。此模式支持普通任务、
+附件、精确 Stop、最终回复和文件取回；Steer、审批、模型/Skills 设置、Compact、Fork
+请在 Codex 桌面处理。不可用的按钮会隐藏。共享 WebSocket 模式保留原有完整功能。
+新版本源码需要经过审查并更新固定运行安装；修改源码本身不会替换正在运行的管理器。
+
 执行 `scripts/check_open_issues.ps1`，自动完成全量 pytest、ruff、编译、构建、
 归档完整性检查、离线安装和安装后导入检查。每次产生独立的
 `.work-issues/verification-UUID/result.json` 和日志，不读取凭据、不部署、不发送 Slack 消息。
@@ -96,3 +102,11 @@ bridge-supervisor.exe --deployment C:\physical\deployment.json --operator C:\phy
 - 普通回复不再附操作编号、成功回执或账户额度，详细信息通过显式命令查看。
 - unknown 表示结果不确定，先查原生桌面与操作记录，不重发任务、上传或审批。
 - 锁屏不等于断线；休眠、重启或断网恢复后先检查连接，再刷新和接管。
+
+
+## 刷新与重复打开会话
+
+`!task` 和 `!tasks` 等效；后面可加标题、ID 或路径关键词。先选择项目，再刷新聊天列表。
+有效期内可重复点击同一个 Open chat，仍使用原来的 Slack 线程，不重复提交模型任务。
+列表按钮仍在十分钟后、连接重建或进程重启后失效，届时发送 `!task` 或 `!project` 刷新。
+任务、审批、文件发送等操作继续使用一次性按钮；重复点击不会重复执行。

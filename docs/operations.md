@@ -72,6 +72,15 @@ file PermissionError reads, at most nine attempts separated by 25 ms.
 
 ## Recovery and retained state
 
+For the pinned Windows desktop, **Existing desktop IPC** attaches without a native
+restart or daemon start. Confirmation shows its capability limits. Open the target
+chat in Codex first; this route does not resume it in another backend. The optional
+non-secret `desktop.state_db` selects an absolute `state_5.sqlite` metadata location
+when the native app uses a different state directory. IPC uses read-only metadata
+and corroborated owner snapshots, never authentication files. An adopted IPC desktop
+has no bridge-owned backend process: native stop is refused, and supervisor Stop/Exit
+stops only its bridge worker. See [connection modes](adaptive-instance-selection.md).
+
 Preserve current bindings, operations and unknown outcomes. An uncertain start,
 task, upload or approval is not permission to repeat it. Read `!status`, `!op OP_ID`
 and the native desktop first. Root recovery uses `!roots` and the separately

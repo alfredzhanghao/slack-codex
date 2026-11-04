@@ -25,7 +25,9 @@ def fixed_code(error):
 
 def instance_description(candidate):
     desktop = candidate["desktop"]
-    if candidate["connectable"]:
+    if candidate.get("transport") == "desktop_ipc" and candidate["connectable"]:
+        detail = "Existing desktop IPC — loaded chats; native processes stay running"
+    elif candidate["connectable"]:
         detail = f"backend {candidate['backend']['pid']}, port {candidate['port']} — ready to confirm"
     else:
         detail = {
@@ -117,7 +119,7 @@ class OperatorAdapter:
         record = windows.validate_instance(self.cfg, candidate)
         worker = self.command("status")
         selected = {k: candidate[k] for k in ("desktop", "backend", "peer")}
-        selected["endpoint"] = f"ws://127.0.0.1:{candidate['port']}"
+        selected["endpoint"] = record["endpoint"]
         if worker.get("running"):
             self.native()
             if worker.get("native_chain") != selected:
@@ -130,8 +132,8 @@ class OperatorAdapter:
         return self.record
 
     async def probe(self, endpoint):
-        from .desktop import RPC
-        rpc = RPC(endpoint, self.cfg.request_timeout, lambda *_: None)
+        from .desktop import Desktop
+        rpc = Desktop(self.cfg, endpoint)
         try:
             await rpc.connect()
         finally:
@@ -431,6 +433,9 @@ def show_window(supervisor):
             prompt = (instance_description(candidate) + f"\n{candidate['desktop'].get('path', '')}"
                       f"\nVerified desktop version: {candidate['desktop_version']}"
                       "\n\nConnect the bridge to this existing instance? Native processes stay running.")
+            if candidate.get("transport") == "desktop_ipc":
+                prompt += ("\n\nIPC mode supports loaded chats, tasks, exact-turn Stop and files."
+                           "\nUse the desktop for Steer, approvals, model/Skills settings, Compact and Fork.")
             if message_box(prompt, "Confirm existing Codex instance", 0x121) != 1:
                 return  # MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2
             candidate_id = candidate["id"]

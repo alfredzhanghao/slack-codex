@@ -38,6 +38,7 @@ class Config:
     message_apps: tuple[str, ...] = ()
     update_budget: int = 30
     artifact_max_bytes: int = 10 * 1024**2
+    native_state_db: Path | None = None
 
     def allows(self, cwd: str) -> bool:
         try:
@@ -88,6 +89,7 @@ def load(path: Path) -> Config:
             message_apps=tuple(slack.get("message_app_allowlist", [])),
             update_budget=int(obj.get("status", {}).get("update_budget_per_minute", 30)),
             artifact_max_bytes=int(obj.get("artifacts", {}).get("max_file_bytes", 10 * 1024**2)),
+            native_state_db=Path(desktop["state_db"]) if desktop.get("state_db") else None,
         )
         for val, prefix in [(cfg.app_id, "A"), (cfg.team_id, "T"), (cfg.user_id, "U"), (cfg.dm_id, "D")]:
             if not re.fullmatch(prefix + r"[A-Z0-9]+", val):
@@ -111,6 +113,10 @@ def load(path: Path) -> Config:
             raise BridgeError("invalid_artifact_size_limit")
         if not all(p.is_absolute() and p.is_file() for p in (cfg.desktop_exe, cfg.backend_exe)):
             raise BridgeError("configured_executable_not_found")
+        if cfg.native_state_db is not None and (not cfg.native_state_db.is_absolute() or
+                                               not cfg.native_state_db.is_file() or
+                                               cfg.native_state_db.name != "state_5.sqlite"):
+            raise BridgeError("desktop_ipc_catalog_unavailable")
         return cfg
     except BridgeError:
         raise

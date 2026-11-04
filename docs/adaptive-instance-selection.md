@@ -1,73 +1,98 @@
 # Adaptive Windows instance selection
 
-## Problem and intended behavior
+## Outcome
 
-A reopened desktop can use a different native backend while the bridge retains
-the old verified process record. Start/Restore previously rejected it without a
-selection path. The supervisor must discover existing desktops on startup, show
-their identity and connection capability, and let the user select and confirm a
-compatible instance without restarting or terminating native processes.
+The supervisor can connect to an already running desktop after explicit selection
+and confirmation without restarting the desktop/backend. Two distinct transports
+are supported; a process name or PID alone never grants access.
 
-## Scope
+| Route | Identity evidence | Capabilities |
+| --- | --- | --- |
+| Shared loopback WebSocket | Desktop/backend creation identities, binary pins, actual TCP peer, native initialize | Existing full native RPC adapter |
+| Existing Windows desktop IPC | Desktop creation identity, configured path/version/hash/package build, named-pipe server PID, same Windows user/session, initialize | Already loaded local chats, ordinary tasks and attachments, exact-turn Stop, final answers and output retrieval |
 
-- Enumerate process identities and owned loopback TCP connections, never process
-  command lines, environment blocks, credential files or task payloads.
-- Require the desktop, backend and actual peer to belong to the current Windows
-  user and login session. Compare OS token-owner metadata locally without exposing
-  SID values; an unreadable owner is not permission to attach.
-- Show matching desktop roots with PID/path/version, backend/port when an actual
-  desktop-to-backend connection exists, and an actionable compatibility reason.
-- A list item is a short-lived snapshot. Refresh clears selection; Connect needs
-  an explicit confirmation and revalidates creation identity, configured executable
-  paths, versions/hashes, listening owner and the actual desktop TCP peer.
-- Before changing the record, perform only the native initialize handshake, then
-  revalidate the snapshot again. A non-RPC listener or a changed peer leaves the
-  previous record intact. No task, approval or model request is used as a probe.
-- Preserve the previous identity record before atomic replacement. Never modify
-  the operation database, replay work or stop a native process during attachment.
-- Refuse changing the native chain while a different bridge worker is running.
-  Start/Restore with an existing desktop opens selection instead of launching or
-  restarting a desktop. With no desktop, the existing explicit start path remains.
-- Consume a selected snapshot before any effect. Expired, changed, unreadable,
-  ambiguous or unsupported instances require refresh/repair, not a guessed target.
+Private desktop IPC is a version-specific compatibility adapter, not the documented
+app-server control socket. It is pinned to Windows package
+`OpenAI.Codex_26.1027.3384.0_x64__2p2nqsd0c76g0`, desktop file version
+`156.0.8078.48` and its verified executable hash. A different package/build is not
+silently accepted even if its Electron file version matches.
 
-## Transport boundary
+## Selection and persistence
 
-This increment attaches already shared loopback WebSocket instances. The existing
-RPC transport is WebSocket; a private stdio process cannot be attached merely
-because its PID exists. An unavailable control socket is not created implicitly.
-No daemon start, startup registration, native restart, private stdio interception
-or identity-check bypass is included. These require separate transport/lifecycle
-work. Display non-connectable desktop instances rather than hiding them or
-claiming that selection alone makes their transport compatible.
+Discovery enumerates desktop roots and verified loopback peers. If no shared TCP
+peer exists, the pinned IPC adapter checks the existing `codex-ipc` named pipe.
+Opening a handle for server identity does not register a client, start a daemon
+or submit a task. An unsupported/unavailable instance remains visible with a reason.
 
-The 2026-11-04 host diagnosis found the original backend listening on loopback,
-but no established peer from the current desktop. The default control socket was
-absent and a bounded official proxy initialize probe produced no response. This
-does not prove every possible private native transport is unavailable.
+Snapshots expire after 120 seconds. Refresh clears selection. Connect needs explicit
+confirmation and rechecks creation identities, configured paths, versions/hashes,
+user/session and the exact endpoint owner. Probe initialize before persistence;
+revalidate again under the launcher mutex before atomic record replacement. Preserve
+the previous record and leave bindings, operations and unknown outcomes unchanged.
+A different running bridge worker must be stopped before switching native chains.
 
-## Validation and delivery
+IPC records explicitly use `backend: null`, `port: null` and a canonical endpoint
+containing only the desktop PID/creation time. They do not claim that the pipe is a
+TCP listener or invent ownership of a private backend child. Native Stop/cleanup is
+refused for an adopted IPC desktop. Supervisor Stop/Exit still owns only its worker.
 
-Regression coverage must include multiple desktops/ports, selected exact peer,
-PID reuse, stale selection, changed binary/port/peer, cancelled selection, running
-worker refusal, no process lifecycle calls on detection/selection, and retained
-legacy start/recovery behavior. Run focused and full existing checks. Keep the
-installed immutable runtime unchanged; hand the committed source to AGY for
-review, PR, current CI and merge. Deployment/live adoption is a separate step.
+## IPC follower behavior
 
-## Implementation result
+The worker registers as a follower. For each chat it discovers the exact owner and
+receives targeted full state snapshots from that owner. It never registers as a
+thread owner or handles another client's business requests. Foreign owners, hosts,
+chat IDs and unsupported stream versions cannot supply trusted state. Unknown
+patches invalidate cached state and require a new full snapshot. Reconnect clears
+state and revokes input ownership through the existing controller.
 
-Source candidate version: 0.3.0a16. Full supported-host verification passed 705
-tests with zero failures/errors/skips, plus lint/build/package/offline-install
-checks. Synthetic native UI selection, Cancel, explicit confirmation and Exit
-were exercised; a real Windows process/TCP fixture retained both process identities.
-The native-protocol fixture confirmed initialize/initialized only, and failure or
-peer change before persistence left the original record untouched.
+A read-only `state_5.sqlite` metadata query supplies the project/chat directory.
+Only non-archived ID/title/cwd fields under configured project roots are selected;
+no history, first-message, account or authentication fields are queried. The default
+is `~/.codex/state_5.sqlite`; `desktop.state_db` can specify a different absolute
+`state_5.sqlite` location. The live owner snapshot must corroborate the exact chat
+and project. Normalize Windows extended drive/UNC prefixes in this adapter before
+applying the unchanged project allowlist. Persisted metadata alone is not live
+state, permission to resume a chat or permission to write.
 
-The restricted local execution sandbox could not observe the real TCP fixture's
-peer; the same test passed on the standard Windows host. No test was weakened or
-excluded to hide that environment difference. The deployed a15 runtime/entry hashes
-remained unchanged. Current real discovery reports no_shared_endpoint, so this
-source implementation does not claim to have attached the currently private
-Codex desktop. AGY review, current PR CI and a separately authorized deployment
-remain subsequent steps.
+A chat must already be open/resumed in the selected desktop. This adapter never
+loads it into a second app-server. The existing controller and durable operation
+ledger still admit each ordinary task once. Forward `turn/start` to the exact
+owner with inherited thread settings. Stop uses the owner protocol's explicit
+`expectedTurnId` and validates the returned interrupted ID. A missing/mismatched
+write receipt or disconnect remains unknown; never retry it automatically.
+
+Terminal snapshots do not manufacture completion events. The existing time-separated
+readback logic confirms terminal turns; incomplete canonical history must be loaded
+and corroborated before final output retrieval. No model task is used as a probe.
+
+## Capability boundary
+
+The IPC route does not expose a general native RPC proxy. Steer, approvals/structured
+answers, model/effort selection, Skills, Compact, Fork and account limits remain in
+the Codex desktop. In particular, its steer method lacks the bridge's exact-turn
+contract, so it is not mapped. Unsupported RPC methods are rejected locally before
+writing to the pipe. Slack cards hide unavailable controls and explain this scope;
+the supervisor confirmation also states it. Streaming progress text is not mapped;
+final answers are read from the exact terminal turn.
+
+The shared WebSocket route keeps its existing capabilities. No private stdio handle
+interception, injection, runtime patch, daemon start, native restart, startup task,
+credential-file access or approval replay is involved in IPC connection.
+
+## Verification and delivery
+
+Tests exercise framing, allowlists, extended paths, private protocol/package pins,
+owner/generation changes, write uncertainty, unsupported methods, UI capabilities,
+stale selection, prior-record preservation and adopted lifecycle refusal, together
+with the existing WebSocket/supervisor regressions. The standard-host full check
+also includes actual Windows process/TCP fixtures, packaging and offline import.
+
+On 2026-11-04 the source adapter connected to the current real desktop pipe and
+read the exact active chat snapshot. Desktop/backend process identities and the
+original connection-record hash stayed unchanged. No task, approval, upload or
+Slack acceptance message was sent. This establishes the no-restart read connection;
+actual Slack task/attachment delivery through IPC remains user acceptance.
+
+Source integration and a pinned runtime update are separate. Preserve the existing
+installation/store and hand the committed candidate to AGY for exact-head review,
+CI, PR and merge before preparing the new installation.

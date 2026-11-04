@@ -37,7 +37,8 @@ def recovery(error: BridgeError) -> Recovery:
                 "version_mismatch_writes_disabled", "version_check_failed", "session_version_changed",
                 "desktop_path_changed", "backend_path_changed", "backend_process_identity_changed",
                 "binary_hash_changed", "desktop_process_identity_changed", "session_identity_mismatch",
-                "controlled_session_not_verified", "controlled_session_record_unavailable"}:
+                "controlled_session_not_verified", "controlled_session_record_unavailable",
+                "desktop_ipc_identity_changed", "desktop_ipc_protocol_unverified"}:
         return Recovery("identity", False, "Verify the controlled desktop/backend identity and configuration before restarting.")
     if code == "slack_rate_limited":
         return Recovery("rate_limit", True, "Wait for Retry-After; old business submissions are not replayed.")

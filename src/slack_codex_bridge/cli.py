@@ -139,7 +139,8 @@ def doctor(cfg):
     try:
         record = windows.verify_record(cfg)
         value["session_verified"] = True
-        value["backend_pid"] = record["backend"]["pid"]
+        value["backend_pid"] = (record.get("backend") or {}).get("pid")
+        value["transport"] = record.get("transport", "websocket")
         value["desktop_pid"] = record["desktop"]["pid"]
     except BridgeError as error:
         value["session_status"] = error.code
@@ -168,7 +169,7 @@ def main(argv=None):
             print(json.dumps({"status": result["status"], "endpoint": result["endpoint"]}))
         elif args.desktop_command == "status":
             result = windows.verify_record(cfg)
-            print(json.dumps({"status": result["status"], "backend_pid": result["backend"]["pid"],
+            print(json.dumps({"status": result["status"], "backend_pid": (result.get("backend") or {}).get("pid"),
                               "desktop_pid": result["desktop"]["pid"]}))
         elif args.desktop_command == "stop":
             asyncio.run(windows.stop(cfg))

@@ -11,7 +11,7 @@ Slack Codex Bridge 是一个运行在个人 Windows 电脑上的桥接程序，�
 审批、附件和取回的文件都留在这个消息列里。
 
 > [!NOTE]
-> **状态：个人 alpha 版（0.3.0a16）。** 只为单个 Slack 所有者控制一对已验证的 Codex
+> **状态：个人 alpha 版（0.3.0a18）。** 只为单个 Slack 所有者控制一对已验证的 Codex
 > 桌面端/后端，仅支持 Windows，不是多用户或托管服务。
 
 ## 在 Slack 里的一次会话
@@ -40,7 +40,11 @@ Slack Codex Bridge 是一个运行在个人 Windows 电脑上的桥接程序，�
   <img src="./assets/readme/architecture.svg" width="100%" alt="Slack 与 Windows 桥接进程交换事件和卡片，桥接进程通过原生 RPC 与已验证的 Codex 桌面后端通信，按需管理器负责启停桥接进程">
 </p>
 
-桥接进程通过 Socket Mode 连接 Slack，不需要公网入口。它按进程身份和实际 TCP 对端验证
+已有桌面可在管理器中选择、确认后接入，无需重启。固定版本的 Windows 桌面还可通过已有
+IPC 通道连接，支持已打开会话的任务、附件、精确 Stop 和文件取回；Steer、审批、模型与 Skills
+设置、Compact、Fork 在 Codex 桌面操作。详见[连接模式与版本限制](docs/adaptive-instance-selection.md)。
+
+桥接进程通过 Socket Mode 连接 Slack，不需要公网入口。共享 WebSocket 模式按进程身份和实际 TCP 对端验证
 Codex 后端与桌面端，而不是只看进程名，遇到无关的桌面实例会拒绝接管。桥接进程意外退出时，
 管理器只在身份可验证的前提下最多恢复 3 次（退避 2/4/8 秒）。详见 [架构说明](docs/architecture.md)。
 

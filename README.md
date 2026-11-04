@@ -12,7 +12,7 @@ native Codex chat gets exactly one Slack reply thread. Tasks, steering, approval
 attachments and returned files all stay inside that thread.
 
 > [!NOTE]
-> **Status: personal alpha (0.3.0a16).** It controls one verified Codex desktop/backend
+> **Status: personal alpha (0.3.0a18).** It controls one verified Codex desktop/backend
 > pair for a single Slack owner on Windows. It is not a multi-user or hosted service.
 
 ## A session in Slack
@@ -50,6 +50,12 @@ only when identity can be verified. See [architecture](docs/architecture.md).
 
 ## Capabilities
 
+**Connect without restarting:** the supervisor can attach an existing shared
+WebSocket instance or the pinned Windows desktop IPC build. IPC supports loaded
+chats, ordinary tasks, exact-turn Stop and files; use the desktop for Steer,
+approvals, model/Skills settings, Compact and Fork. See
+[connection modes and version boundary](docs/adaptive-instance-selection.md).
+
 - **Navigation**: project and chat discovery, one persistent thread per native chat, explicit Fork.
 - **Control**: Take control, Steer, Stop, approvals and structured answers.
 - **Settings**: native model and reasoning-effort selectors, paged Skills with exact-path details, Compact.
@@ -63,6 +69,7 @@ only when identity can be verified. See [architecture](docs/architecture.md).
 | Command | Purpose |
 | --- | --- |
 | `!project` / `!projects` | Choose a project and open a chat |
+| `!task [filter]` / `!tasks [filter]` | Refresh chats in the selected project |
 | `!skills [keyword]` · `!skill PATH -- task` | Browse Skills or run one with a task |
 | `!model` · `!effort` | Set model and reasoning effort for the next submission |
 | `!compact` · `!fork` | Compact or fork the current chat |
