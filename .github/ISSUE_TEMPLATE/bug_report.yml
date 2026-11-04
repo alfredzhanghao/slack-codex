@@ -1,0 +1,57 @@
+name: 🐛 故障与缺陷反馈 (Bug Report)
+description: 提交程序运行、连接、协议或调度异常的故障报告
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### ⚠️ 安全红线提示
+        **绝对严禁**在 Issue 中贴出任何真实的 Slack Token（`xoxb-`、`xapp-`）、Cookie、敏感环境变量或包含隐私的主机目录！请务必脱敏后再提交。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰简要地说明遇到了什么问题。
+      placeholder: 例如：执行 !project 后点击 Take control 没有反应...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 触发该问题的具体操作步骤。
+      placeholder: |
+        1. 启动 `bridge run`
+        2. 在 Slack 中发送 `!project`
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 正常情况下应该发生什么。
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或控制台输出
+      description: 请粘贴相关的控制台输出或 `bridge doctor` 诊断信息（请再次检查是否已移除敏感信息）。
+      render: shell
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 操作系统与运行环境
+      options:
+        - Windows 11 x64 (Python 3.12)
+        - Windows 10 x64 (Python 3.12)
+        - 其他系统 / 版本 (请在下方说明)
+    validations:
+      required: true

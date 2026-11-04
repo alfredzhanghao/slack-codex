@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞报告 (Security Vulnerability)
+    url: https://github.com/alfredzhanghao/slack-codex/security/policy
+    about: 请通过 SECURITY.md 说明的私密通道提交安全问题，不要在公开 Issue 中提交！

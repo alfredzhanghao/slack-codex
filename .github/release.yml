@@ -1,0 +1,25 @@
+changelog:
+  categories:
+    - title: 🚀 新特性与改进 (Enhancements)
+      labels:
+        - enhancement
+        - feature
+    - title: 🐛 漏洞修复 (Bug Fixes)
+      labels:
+        - bug
+        - fix
+    - title: 🔒 安全与合规 (Security)
+      labels:
+        - security
+    - title: 📚 文档更新 (Documentation)
+      labels:
+        - docs
+        - documentation
+    - title: 🤖 构建与工程健康 (Build & CI)
+      labels:
+        - build
+        - ci
+        - testing
+    - title: 📦 其他变更 (Other Changes)
+      labels:
+        - "*"
