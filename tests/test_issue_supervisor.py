@@ -231,3 +231,74 @@ def test_explicit_restore_reuses_original_backend_and_verifies_peer_before_savin
     assert launches[0][1]["CODEX_APP_SERVER_WS_URL"] == record["endpoint"]
     assert result["backend"] == {"pid": 10} and result["peer"] == {"pid": 21}
     assert [r["status"] for r in saves] == ["restoring", "verified"]
+
+
+class SelectingAdapter(Adapter):
+    def __init__(self):
+        super().__init__()
+        self.options = [{"id": "candidate-1", "connectable": True}]
+
+    def discover(self):
+        self.calls.append("scan")
+        return [dict(c) for c in self.options]
+
+    def attach(self, candidate):
+        self.calls.append("attach:" + candidate["id"])
+
+
+def test_start_with_existing_desktop_waits_for_selection_without_native_restore():
+    a = SelectingAdapter()
+    s = Supervisor(a)
+    s.action("Start")
+    for _ in range(5):
+        s.poll()
+    assert s.selection_pending and not s.enabled
+    assert a.calls == ["scan"]
+    s.action("Connect selected", "candidate-1")
+    assert s.enabled and a.calls.count("start") == 1
+    assert "explicit_restore" not in a.calls
+    s.action("Connect selected", "candidate-1")
+    assert a.calls.count("attach:candidate-1") == 1 and a.calls.count("start") == 1
+
+
+def test_unsupported_candidate_and_cancelled_selection_never_start_or_restore():
+    a = SelectingAdapter()
+    a.options[0]["connectable"] = False
+    s = Supervisor(a)
+    s.action("Scan instances")
+    assert a.calls == ["scan"]  # Closing/cancelling the UI never invokes Connect.
+    s.action("Connect selected", "candidate-1")
+    assert s.last_action_code == "instance_not_connectable" and a.calls == ["scan"]
+
+
+def test_no_desktop_keeps_explicit_controlled_start_path():
+    a = SelectingAdapter()
+    a.options = []
+    s = Supervisor(a)
+    s.action("Start")
+    assert a.calls[:2] == ["scan", "explicit_restore"] and s.enabled
+
+
+def test_scan_failure_preserves_an_already_managed_worker():
+    a = SelectingAdapter()
+    s = Supervisor(a)
+    s.action("Start")
+    s.action("Connect selected", "candidate-1")
+    run = s.managed_run
+    a.discover = lambda: (_ for _ in ()).throw(BridgeError("process_inventory_unavailable"))
+    s.action("Scan instances")
+    assert s.enabled and s.managed_run == run and a.status["running"]
+    assert s.last_action_code == "process_inventory_unavailable"
+    assert s.candidates == [] and not s.selection_pending
+
+
+def test_adapter_refuses_switching_a_running_worker_without_touching_native_record(tmp_path, monkeypatch):
+    a = OperatorAdapter.__new__(OperatorAdapter)
+    a.cfg = object()
+    candidate = {"desktop": {"pid": 20}, "backend": {"pid": 30}, "peer": {"pid": 20}, "port": 9000}
+    a.command = lambda _: {"running": True, "native_chain": {"desktop": {"pid": 99}}}
+    a.native = lambda: True
+    monkeypatch.setattr(windows, "validate_instance", lambda *_: {})
+    monkeypatch.setattr(windows, "adopt_instance", lambda *_: pytest.fail("must retain existing chain"))
+    with pytest.raises(BridgeError, match="stop_bridge_before_switch"):
+        a.attach(candidate)

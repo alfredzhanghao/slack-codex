@@ -1,6 +1,7 @@
 """Manually launched Windows bridge supervisor. No login hooks or task replay."""
 
 import argparse
+import asyncio
 import ctypes
 import hashlib
 import json
@@ -20,6 +21,22 @@ from .model import BridgeError
 def fixed_code(error):
     code = getattr(error, "code", "supervisor_operation_failed")
     return code if isinstance(code, str) and re.fullmatch(r"[a-z0-9_]{1,100}", code) else "supervisor_operation_failed"
+
+
+def instance_description(candidate):
+    desktop = candidate["desktop"]
+    if candidate["connectable"]:
+        detail = f"backend {candidate['backend']['pid']}, port {candidate['port']} — ready to confirm"
+    else:
+        detail = {
+            "no_shared_endpoint": "No verified shared endpoint; this desktop will stay running",
+            "instance_executable_not_configured": "Executable differs from the configured desktop",
+            "version_mismatch_writes_disabled": "Version is incompatible with this bridge profile",
+            "binary_hash_changed": "Binary changed; verify the deployment before connecting",
+            "instance_previous_start_unconfirmed": "An earlier native start is unconfirmed; inspect it first",
+            "instance_different_user_or_session": "Instance belongs to a different Windows user or login session",
+        }.get(candidate["reason"], "Identity or connection unavailable; refresh or verify the profile")
+    return f"Desktop {desktop['pid']} | {detail}"
 
 
 def physical_file(value):
@@ -93,6 +110,33 @@ class OperatorAdapter:
                 return windows.start(self.cfg)
             raise
 
+    def discover(self):
+        return windows.discover_instances(self.cfg)
+
+    def attach(self, candidate):
+        record = windows.validate_instance(self.cfg, candidate)
+        worker = self.command("status")
+        selected = {k: candidate[k] for k in ("desktop", "backend", "peer")}
+        selected["endpoint"] = f"ws://127.0.0.1:{candidate['port']}"
+        if worker.get("running"):
+            self.native()
+            if worker.get("native_chain") != selected:
+                raise BridgeError("supervisor_stop_bridge_before_switch")
+            return self.record
+        # A TCP peer alone does not prove that this listener speaks native RPC.
+        # Probe only initialize; do not persist a new identity on protocol failure.
+        asyncio.run(self.probe(record["endpoint"]))
+        self.record = windows.adopt_instance(self.cfg, candidate)
+        return self.record
+
+    async def probe(self, endpoint):
+        from .desktop import RPC
+        rpc = RPC(endpoint, self.cfg.request_timeout, lambda *_: None)
+        try:
+            await rpc.connect()
+        finally:
+            await rpc.close()
+
     def start(self):
         self.command("start")
         self.native()
@@ -119,6 +163,8 @@ class Supervisor:
         self.last_action_code = None
         self.last_worker = {}
         self.native_verified = False
+        self.candidates = []
+        self.selection_pending = False
 
     def inspect(self):
         self.native_verified = bool(self.adapter.native())
@@ -127,8 +173,37 @@ class Supervisor:
 
     def start(self):
         self.code = None
+        # Detect first. Selecting an existing desktop never invokes native restore.
+        if hasattr(self.adapter, "discover"):
+            self.scan_instances()
+            if self.candidates:
+                return
         # Start and Restore are explicit; monitoring never reopens the desktop.
         self.adapter.restore()
+        self._start_verified()
+
+    def scan_instances(self):
+        self.candidates = []
+        self.selection_pending = False
+        self.candidates = self.adapter.discover()
+        self.selection_pending = bool(self.candidates)
+        if not self.enabled and not self.managed_run:
+            self.phase = "choose an existing instance" if self.candidates else "no running desktop detected"
+            self.code = None
+
+    def connect_instance(self, candidate_id):
+        candidate = next((c for c in self.candidates if c["id"] == candidate_id), None)
+        if not candidate:
+            raise BridgeError("instance_selection_expired_refresh")
+        if not candidate["connectable"]:
+            raise BridgeError("instance_not_connectable")
+        # Consume before effects. An uncertain operator result cannot reuse a click.
+        self.candidates = []
+        self.selection_pending = False
+        self.adapter.attach(candidate)
+        self._start_verified()
+
+    def _start_verified(self):
         worker = self.inspect()
         if worker.get("running"):
             if not worker.get("fresh") or not worker.get("run_id"):
@@ -161,6 +236,8 @@ class Supervisor:
         self.phase = "stopped"
 
     def poll(self):
+        if self.selection_pending and not self.enabled and not self.managed_run:
+            return
         try:
             worker = self.inspect()
         except BridgeError as error:
@@ -226,14 +303,20 @@ class Supervisor:
             raise BridgeError("supervisor_start_unconfirmed")
         self.phase = "running"
 
-    def action(self, name):
+    def action(self, name, candidate_id=None):
         self.last_action_code = None
+        previous = self.enabled, self.phase, self.code, self.managed_run
         try:
-            {"Start": self.start, "Restore connection": self.start, "Stop": self.stop, "Exit": self.stop}[name]()
+            {"Start": self.start, "Restore connection": self.start, "Stop": self.stop, "Exit": self.stop,
+             "Scan instances": self.scan_instances,
+             "Connect selected": lambda: self.connect_instance(candidate_id)}[name]()
         except Exception as error:
-            self.enabled = False
-            self.phase, self.code = "attention required", fixed_code(error)
-            self.last_action_code = self.code
+            self.last_action_code = fixed_code(error)
+            if name in {"Scan instances", "Connect selected"} and previous[0] and self.managed_run == previous[3]:
+                self.enabled, self.phase, self.code = previous[:3]
+            else:
+                self.enabled = False
+                self.phase, self.code = "attention required", self.last_action_code
 
     def status_text(self):
         worker = self.last_worker
@@ -244,8 +327,8 @@ class Supervisor:
                 f"Slack: {'ready' if worker.get('ready') and worker.get('fresh') else 'not ready'}\n"
                 f"Recovery attempts: {self.retries}/3\nRecent code: {self.code or worker.get('fault') or 'none'}\n"
                 f"Last action error: {self.last_action_code or 'none'}\n\n"
-                "Start / Restore verifies the original backend before opening a closed desktop.\n"
-                "An unrelated desktop must be closed or reconnected manually.\n"
+                "Choose and confirm an existing compatible instance to connect without restarting it.\n"
+                "Private or unsupported transports remain running; detection does not grant access.\n"
                 "Stop / Exit affects only this supervisor's bridge. Native tasks continue.\n"
                 "No login registration. No task, approval or uncertain upload is replayed.")
 
@@ -282,6 +365,8 @@ def show_window(supervisor):
     user.EnableWindow.argtypes = [wt.HWND, wt.BOOL]
     user.ShowWindow.argtypes = [wt.HWND, ctypes.c_int]
     user.SetForegroundWindow.argtypes = [wt.HWND]
+    user.MessageBoxW.argtypes = [wt.HWND, wt.LPCWSTR, wt.LPCWSTR, wt.UINT]
+    user.MessageBoxW.restype = ctypes.c_int
     user.DestroyWindow.argtypes = [wt.HWND]
     user.SetTimer.argtypes = [wt.HWND, ctypes.c_size_t, wt.UINT, ctypes.c_void_p]
     user.SetTimer.restype = ctypes.c_size_t
@@ -298,20 +383,66 @@ def show_window(supervisor):
     shell.Shell_NotifyIconW.argtypes = [wt.DWORD, ctypes.POINTER(Icon)]
     instance = kernel.GetModuleHandleW(None)
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bridge-supervisor")
-    actions = {100: "Start", 101: "Stop", 102: "Restore connection", 103: "Exit"}
-    controls, pending, queued = [], None, None
+    actions = {100: "Start", 101: "Stop", 102: "Restore connection", 103: "Exit",
+               104: "Scan instances", 105: "Connect selected"}
+    controls, pending, queued = [], None, "Scan instances"
+    displayed = []
+    rendered_ids = None
+    confirming = False
     last_poll, exiting, tray_added = 0, False, False
-    label, hwnd, icon_data = None, None, Icon()
+    label, selection, details, hwnd, icon_data = None, None, None, None, Icon()
+
+    def render_instances():
+        nonlocal displayed, rendered_ids
+        ids = [c["id"] for c in supervisor.candidates]
+        if rendered_ids == ids:
+            return
+        rendered_ids = ids
+        displayed = list(supervisor.candidates)
+        user.SendMessageW(selection, 0x014B, 0, 0)  # CB_RESETCONTENT
+        for candidate in displayed:
+            text = ctypes.c_wchar_p(instance_description(candidate))
+            user.SendMessageW(selection, 0x0143, 0, ctypes.cast(text, ctypes.c_void_p).value)  # CB_ADDSTRING
+        user.SendMessageW(selection, 0x014E, -1, 0)  # No implicit selection.
+        user.SetWindowTextW(details, "Select an instance, then Connect selected. Refresh after two minutes." if displayed
+                            else "Refresh instances to choose a connection, or use Start if no desktop is open.")
+
+    def message_box(text, title, flags):
+        nonlocal confirming
+        confirming = True
+        try:
+            return user.MessageBoxW(hwnd, text, title, flags)
+        finally:
+            confirming = False
 
     def begin(name):
         nonlocal pending, exiting
+        candidate_id = None
+        if name == "Connect selected":
+            index = user.SendMessageW(selection, 0x0147, 0, 0)  # CB_GETCURSEL
+            if not 0 <= index < len(displayed):
+                message_box("Select a running instance first.", "Choose an instance", 0x40)
+                return
+            candidate = displayed[index]
+            if not candidate["connectable"]:
+                message_box(instance_description(candidate) +
+                            "\nNo process will be restarted or terminated.", "Cannot attach this instance", 0x40)
+                return
+            prompt = (instance_description(candidate) + f"\n{candidate['desktop'].get('path', '')}"
+                      f"\nVerified desktop version: {candidate['desktop_version']}"
+                      "\n\nConnect the bridge to this existing instance? Native processes stay running.")
+            if message_box(prompt, "Confirm existing Codex instance", 0x121) != 1:
+                return  # MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2
+            candidate_id = candidate["id"]
         exiting = name == "Exit"
-        pending = executor.submit(supervisor.action, name)
+        pending = executor.submit(supervisor.action, name, candidate_id)
         for button in controls:
             user.EnableWindow(button, False)
 
     def tick():
         nonlocal pending, queued, last_poll, exiting
+        if confirming:
+            return  # MessageBox pumps WM_TIMER; do not replace a pending UI future.
         if pending is not None and pending.done():
             try:
                 pending.result()
@@ -319,6 +450,7 @@ def show_window(supervisor):
                 supervisor.enabled = False
                 supervisor.phase, supervisor.code = "attention required", fixed_code(error)
             pending = None
+            render_instances()
             user.SetWindowTextW(label, supervisor.status_text())
             if exiting:
                 if not supervisor.managed_run:
@@ -337,6 +469,13 @@ def show_window(supervisor):
 
     def callback(window, msg, wp, lp):
         nonlocal queued, tray_added
+        if msg == 0x0111 and (wp & 0xffff) == 106 and (wp >> 16) == 1:
+            index = user.SendMessageW(selection, 0x0147, 0, 0)
+            if 0 <= index < len(displayed):
+                candidate = displayed[index]
+                user.SetWindowTextW(details, candidate["desktop"].get("path", "Identity unavailable") +
+                                    "\n" + instance_description(candidate))
+            return 0
         if msg == 0x0111 and (wp & 0xffff) in actions and (wp >> 16) == 0:
             queued = actions[wp & 0xffff]
             tick()
@@ -367,15 +506,16 @@ def show_window(supervisor):
             raise BridgeError("supervisor_window_class_unavailable")
         hwnd = user.CreateWindowExW(0, cls.name, "Slack Codex Bridge Supervisor", 0x00CA0000,
                                    0x80000000 - 0x100000000, 0x80000000 - 0x100000000,
-                                   800, 500, None, None, instance, None)
+                                   800, 690, None, None, instance, None)
         if not hwnd:
             raise BridgeError("supervisor_window_unavailable")
         gdi = ctypes.WinDLL("gdi32", use_last_error=True)
         gdi.CreateFontW.argtypes = [ctypes.c_int] * 5 + [wt.DWORD] * 8 + [wt.LPCWSTR]
         gdi.CreateFontW.restype = wt.HANDLE
         font = gdi.CreateFontW(-16, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI")
-        def child(kind, title, x, y, width, height, identifier=0):
-            control = user.CreateWindowExW(0, kind, title, 0x50000000 | (0x10000 if kind == "BUTTON" else 0),
+        def child(kind, title, x, y, width, height, identifier=0, style=0):
+            control = user.CreateWindowExW(0, kind, title, 0x50000000 | style |
+                                          (0x10000 if kind in {"BUTTON", "COMBOBOX"} else 0),
                                           x, y, width, height, hwnd, identifier, instance, None)
             if not control:
                 raise BridgeError("supervisor_control_unavailable")
@@ -383,9 +523,15 @@ def show_window(supervisor):
             return control
         child("STATIC", "Slack Codex Bridge — on-demand supervisor", 24, 18, 730, 24)
         label = child("STATIC", supervisor.status_text(), 24, 52, 740, 316)
+        child("STATIC", "Running Codex instances — select and explicitly confirm", 24, 380, 730, 24)
+        selection = child("COMBOBOX", "", 24, 408, 740, 200, 106, 0x00200003)
+        controls.append(selection)
+        details = child("STATIC", "Scanning running instances…", 24, 440, 740, 44)
+        controls.append(child("BUTTON", "Refresh instances", 24, 494, 140, 32, 104))
+        controls.append(child("BUTTON", "Connect selected", 176, 494, 160, 32, 105))
         for identifier, x, width in [(100, 24, 100), (101, 136, 100), (102, 248, 170), (103, 430, 100)]:
-            controls.append(child("BUTTON", actions[identifier], x, 380, width, 32, identifier))
-        child("STATIC", "Close hides this window. Use Exit to stop the managed bridge and monitoring.", 24, 426, 730, 24)
+            controls.append(child("BUTTON", actions[identifier], x, 548, width, 32, identifier))
+        child("STATIC", "Close hides this window. Use Exit to stop the managed bridge and monitoring.", 24, 602, 730, 24)
         icon_data.cbSize, icon_data.hWnd, icon_data.uID = ctypes.sizeof(Icon), hwnd, 1
         icon_data.uFlags, icon_data.uCallbackMessage, icon_data.hIcon = 7, 0x8001, cls.icon
         icon_data.szTip = "Slack Codex Bridge — click for status"

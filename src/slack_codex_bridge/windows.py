@@ -12,7 +12,7 @@ from ctypes import wintypes as wt
 from pathlib import Path
 
 from .config import Config, child_environment
-from .model import BridgeError
+from .model import BridgeError, new_id
 
 
 def require_windows():
@@ -73,6 +73,49 @@ def process_identity(pid: int) -> dict | None:
     finally:
         kernel.CloseHandle.argtypes = [wt.HANDLE]
         kernel.CloseHandle(handle)
+
+
+def same_user_session(pid: int) -> bool:
+    """Compare native token owner and login session without exposing either."""
+    kernel = _kernel()
+    kernel.ProcessIdToSessionId.argtypes = [wt.DWORD, ctypes.POINTER(wt.DWORD)]
+    sessions = [wt.DWORD(), wt.DWORD()]
+    for target, session in zip((os.getpid(), pid), sessions):
+        if not kernel.ProcessIdToSessionId(target, ctypes.byref(session)):
+            raise BridgeError("instance_owner_unavailable")
+    if sessions[0].value != sessions[1].value:
+        return False
+    kernel.OpenProcess.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
+    kernel.OpenProcess.restype = wt.HANDLE
+    kernel.CloseHandle.argtypes = [wt.HANDLE]
+    security = ctypes.WinDLL("advapi32", use_last_error=True)
+    security.OpenProcessToken.argtypes = [wt.HANDLE, wt.DWORD, ctypes.POINTER(wt.HANDLE)]
+    security.GetTokenInformation.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void_p,
+                                           wt.DWORD, ctypes.POINTER(wt.DWORD)]
+    security.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    buffers = []
+    for target in (os.getpid(), pid):
+        process = kernel.OpenProcess(0x1000, False, target)
+        token = wt.HANDLE()
+        try:
+            if not process or not security.OpenProcessToken(process, 8, ctypes.byref(token)):
+                raise BridgeError("instance_owner_unavailable")
+            size = wt.DWORD()
+            security.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))  # TokenUser
+            if not 0 < size.value <= 65536:
+                raise BridgeError("instance_owner_unavailable")
+            buffer = ctypes.create_string_buffer(size.value)
+            if not security.GetTokenInformation(token, 1, buffer, size, ctypes.byref(size)):
+                raise BridgeError("instance_owner_unavailable")
+            buffers.append(buffer)
+        finally:
+            if token:
+                kernel.CloseHandle(token)
+            if process:
+                kernel.CloseHandle(process)
+    # TOKEN_USER starts with SID_AND_ATTRIBUTES.Sid. Buffers own the SID bytes.
+    sids = [ctypes.cast(buffer, ctypes.POINTER(ctypes.c_void_p))[0] for buffer in buffers]
+    return bool(security.EqualSid(*sids))
 
 
 def _handle_identity(kernel, handle, pid):
@@ -187,9 +230,12 @@ def tcp_rows():
 
 
 def correlate(record: dict):
+    return _correlate(record, tcp_rows(), processes())
+
+
+def _correlate(record, rows, inventory):
     port = record["port"]
-    rows = tcp_rows()
-    parents = {p["pid"]: p["parent"] for p in processes()}
+    parents = {p["pid"]: p["parent"] for p in inventory}
     for server in rows:
         if (server[1] != f"127.0.0.1:{port}" or server[3] != "ESTABLISHED"
                 or server[4] != str(record["backend"]["pid"])):
@@ -208,6 +254,131 @@ def correlate(record: dict):
             if not ancestor:
                 break
     raise BridgeError("desktop_peer_not_owned")
+
+
+def _instance_binary_proof(cfg):
+    verify_versions(cfg)
+    proof = {"backend_hash": binary_hash(cfg.backend_exe), "desktop_hash": binary_hash(cfg.desktop_exe)}
+    if record_path(cfg).exists():
+        previous = read_record(cfg)
+        if previous.get("status") not in {"verified", "stopped"}:
+            raise BridgeError("instance_previous_start_unconfirmed")
+        if any(previous.get(key) != value for key, value in proof.items()):
+            raise BridgeError("binary_hash_changed")
+    return proof
+
+
+def discover_instances(cfg):
+    """Read-only snapshots; a process listing is never attachment permission."""
+    inventory, rows = processes(), tcp_rows()
+    desktops = [p for p in inventory if p["name"].casefold() == cfg.desktop_exe.name.casefold()]
+    pids = {p["pid"] for p in desktops}
+    roots = sorted((p for p in desktops if p["parent"] not in pids), key=lambda p: p["pid"])
+    if not roots:
+        return []
+    proof, proof_error = {}, None
+    try:
+        proof = _instance_binary_proof(cfg)
+    except BridgeError as error:
+        proof_error = error.code
+    backends = []
+    for process in inventory:
+        if process["name"].casefold() == cfg.backend_exe.name.casefold():
+            try:
+                identity = process_identity(process["pid"])
+                if (identity and identity["path"].casefold() == str(cfg.backend_exe.resolve()).casefold()
+                        and same_user_session(identity["pid"])):
+                    backends.append(identity)
+            except BridgeError:
+                continue
+    candidates = []
+    for root in roots:
+        item = {"id": new_id(), "observed_ms": int(time.time() * 1000), "connectable": False,
+                "reason": "no_shared_endpoint", "desktop": {"pid": root["pid"]},
+                "backend": None, "peer": None, "port": None, "desktop_version": cfg.desktop_version}
+        try:
+            desktop = process_identity(root["pid"])
+            if not desktop:
+                continue
+            item["desktop"] = desktop
+            if not same_user_session(desktop["pid"]):
+                raise BridgeError("instance_different_user_or_session")
+            if desktop["path"].casefold() != str(cfg.desktop_exe.resolve()).casefold():
+                raise BridgeError("instance_executable_not_configured")
+            if proof_error:
+                raise BridgeError(proof_error)
+            for backend in backends:
+                for row in rows:
+                    if (row[3] != "LISTENING" or row[4] != str(backend["pid"])
+                            or not row[1].startswith("127.0.0.1:")):
+                        continue
+                    port = int(row[1].rsplit(":", 1)[1])
+                    if not 1 <= port <= 65535:
+                        continue
+                    record = {"desktop": desktop, "backend": backend, "port": port}
+                    try:
+                        peer = _correlate(record, rows, inventory)
+                        if not same_user_session(peer["pid"]):
+                            continue
+                    except BridgeError:
+                        continue
+                    candidates.append(dict(item, id=new_id(), connectable=True, reason="shared_connection_verified",
+                                           backend=backend, port=port, peer=peer, binary_proof=dict(proof)))
+            if not any(c["desktop"] == desktop for c in candidates):
+                candidates.append(item)
+        except BridgeError as error:
+            item["reason"] = error.code
+            candidates.append(item)
+    return candidates
+
+
+def validate_instance(cfg, candidate):
+    """Validate a selected snapshot without changing the connection record."""
+    if not candidate.get("connectable"):
+        raise BridgeError("instance_not_connectable")
+    age = int(time.time() * 1000) - candidate.get("observed_ms", 0)
+    if not 0 <= age <= 120000:
+        raise BridgeError("instance_selection_expired_refresh")
+    proof = _instance_binary_proof(cfg)
+    if proof != candidate.get("binary_proof"):
+        raise BridgeError("instance_binary_changed_refresh")
+    for key, executable in [("desktop", cfg.desktop_exe), ("backend", cfg.backend_exe)]:
+        identity = candidate.get(key)
+        if (not isinstance(identity, dict) or type(identity.get("pid")) is not int
+                or identity.get("path", "").casefold() != str(executable.resolve()).casefold()
+                or process_identity(identity["pid"]) != identity):
+            raise BridgeError("instance_identity_changed_refresh")
+        if not same_user_session(identity["pid"]):
+            raise BridgeError("instance_different_user_or_session")
+    port = candidate.get("port")
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise BridgeError("instance_endpoint_invalid")
+    endpoint = f"ws://127.0.0.1:{port}"
+    record = {"host_id": cfg.host_id, "status": "verified", "port": port, "endpoint": endpoint,
+              "desktop": dict(candidate["desktop"]), "backend": dict(candidate["backend"]),
+              "backend_version": cfg.backend_version, "desktop_version": cfg.desktop_version, **proof}
+    rows = tcp_rows()
+    if not any(r[1] == f"127.0.0.1:{port}" and r[3] == "LISTENING"
+               and r[4] == str(record["backend"]["pid"]) for r in rows):
+        raise BridgeError("instance_listener_changed_refresh")
+    record["peer"] = _correlate(record, rows, processes())
+    if record["peer"] != candidate.get("peer"):
+        raise BridgeError("instance_peer_changed_refresh")
+    if not same_user_session(record["peer"]["pid"]):
+        raise BridgeError("instance_different_user_or_session")
+    return record
+
+
+def adopt_instance(cfg, candidate):
+    """Explicit user selection: recheck the exact chain, then save; never launch."""
+    with single_instance(cfg.host_id + "-launcher"):
+        record = validate_instance(cfg, candidate)
+        # Retain the old connection record; operation databases are untouched.
+        if record_path(cfg).exists():
+            backup = cfg.data_dir / f"desktop-session.{new_id()}.previous.json"
+            backup.write_bytes(record_path(cfg).read_bytes())
+        save_record(cfg, record)
+        return record
 
 
 def record_path(cfg):

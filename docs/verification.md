@@ -1,4 +1,31 @@
-# Current verification and acceptance — 2026-11-03
+# Current verification and acceptance — 2026-11-04
+
+## a16 candidate instance selection
+
+The new candidate scans existing desktop roots and asks for explicit selection
+and confirmation. The pinned local a15 installation is not replaced. Tests cover
+stale/reused identities, listener/peer/binary changes, previous uncertain launches,
+unsupported transports, one-use selection and running-worker refusal. An actual
+loopback native-protocol fixture receives only initialize/initialized. A real
+Windows two-process TCP fixture verifies attachment preserves both process identities.
+The latter needs standard host process/TCP visibility; the restricted local tool
+sandbox could not see its peer, while the identical standard-host test passed.
+
+A synthetic native supervisor window displayed both supported and unsupported
+instances. Cancelling confirmation left only the scan event; confirming produced
+one fake attachment/start, and Exit stopped only that fake worker. This is UI
+acceptance with synthetic instances, not an actual native Codex attachment.
+Read-only discovery of this host's current desktop reports no_shared_endpoint and
+leaves its identity record unchanged. No real Codex restart/adoption, Slack/model
+request, upload or deployed-runtime update was performed.
+
+Full a16 candidate verification passed **705 tests, zero failures/errors/skips**,
+Ruff, compilation, build, archive/source checks, offline installation and installed
+imports. Run: `.work-issues/verification-68682815-92b4-49e8-b43d-01f60822266a/`.
+The final documentation was then rebuilt/rechecked without changing application
+modules. Archive identities and the exact reviewed source target are retained in
+the private verification run and per-task AGY handoff. The records below describe
+the prior a15 acceptance baseline, not acceptance of a private stdio transport.
 
 ## Automated checks
 
