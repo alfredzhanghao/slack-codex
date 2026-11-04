@@ -1,0 +1,6 @@
+include README.md README.zh-CN.md LICENSE SECURITY.md bridge.example.json requirements.lock requirements-dev.lock
+recursive-include docs *.md
+include docs/slack-app-manifest.json
+recursive-include tests *.py
+recursive-include scripts *.ps1 *.py *.pyw
+global-exclude *.env *.sqlite* *.pyc

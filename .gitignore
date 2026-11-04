@@ -1,0 +1,18 @@
+.venv/
+.tools/
+.work*/
+# Local probe evidence; keep reusable probe source and reports versionable.
+/probe/runs/
+/probe/*.json
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.env
+.env*
+*.sqlite*
+bridge.local.json
+/Slack Codex Bridge.lnk

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Slack Codex Bridge</title>
+  <desc id="desc">Drive your local Codex desktop from a Slack DM. Illustrative Slack thread: the user sends !project, opens the slack-codex main chat, takes control, sends a task in the reply thread and receives the report file.</desc>
+
+  <rect width="1200" height="420" rx="24" fill="#0E1116"/>
+
+  <g id="title-block" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, PingFang SC, sans-serif">
+    <text x="64" y="92" font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="18" letter-spacing="2" fill="#8A93A0">SLACK DM → CODEX DESKTOP · WINDOWS</text>
+    <text x="62" y="170" font-size="58" font-weight="700" fill="#F3F0E8">Slack Codex Bridge</text>
+    <text x="64" y="226" font-size="26" fill="#D5D9E0">Drive your local Codex desktop from Slack.</text>
+    <text x="64" y="262" font-size="26" fill="#D5D9E0">One reply thread per native chat.</text>
+
+    <g font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="18">
+      <rect x="64" y="294" width="176" height="38" rx="19" fill="none" stroke="#E8B04B" stroke-width="1.5"/>
+      <text x="152" y="319" text-anchor="middle" fill="#E8B04B">explicit control</text>
+      <rect x="252" y="294" width="176" height="38" rx="19" fill="none" stroke="#5FD3B5" stroke-width="1.5"/>
+      <text x="340" y="319" text-anchor="middle" fill="#5FD3B5">exact-turn steer</text>
+      <rect x="440" y="294" width="156" height="38" rx="19" fill="none" stroke="#8A93A0" stroke-width="1.5"/>
+      <text x="518" y="319" text-anchor="middle" fill="#C9CED6">no replays</text>
+    </g>
+
+    <text x="64" y="374" font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="16" fill="#6E7782">v0.3.0a15 · Python 3.12 · Socket Mode · single owner</text>
+  </g>
+
+  <g id="thread-proof" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, PingFang SC, sans-serif">
+    <rect x="676" y="40" width="472" height="340" rx="18" fill="#161B22" stroke="#2A313B" stroke-width="1.5"/>
+    <text x="704" y="80" font-size="21" font-weight="700" fill="#F3F0E8"># codex</text>
+    <text x="1124" y="80" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="16" fill="#6E7782">illustrative</text>
+    <line x1="676" y1="98" x2="1148" y2="98" stroke="#2A313B" stroke-width="1.5"/>
+
+    <!-- message: user opens a project -->
+    <rect x="704" y="114" width="32" height="32" rx="8" fill="#E8B04B"/>
+    <text x="720" y="137" text-anchor="middle" font-size="18" font-weight="700" fill="#0E1116">A</text>
+    <rect x="752" y="113" width="112" height="34" rx="8" fill="#2A2416"/>
+    <text x="808" y="137" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="20" fill="#E8B04B">!project</text>
+
+    <!-- message: chat card -->
+    <rect x="704" y="166" width="32" height="32" rx="8" fill="#5FD3B5"/>
+    <text x="720" y="188" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#0E1116">cx</text>
+    <rect x="752" y="164" width="372" height="92" rx="10" fill="#1D232C" stroke="#2A313B" stroke-width="1.5"/>
+    <text x="770" y="194" font-size="20" font-weight="600" fill="#F3F0E8">slack-codex · main chat</text>
+    <rect x="770" y="210" width="140" height="34" rx="7" fill="#5FD3B5"/>
+    <text x="840" y="233" text-anchor="middle" font-size="18" font-weight="600" fill="#0E1116">Take control</text>
+    <rect x="922" y="210" width="104" height="34" rx="7" fill="none" stroke="#5A6470" stroke-width="1.5"/>
+    <text x="974" y="233" text-anchor="middle" font-size="18" fill="#D5D9E0">Settings</text>
+
+    <!-- reply thread rail -->
+    <path d="M720 214 V350" stroke="#5FD3B5" stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round"/>
+    <circle cx="720" cy="290" r="6" fill="#E8B04B"/>
+    <circle cx="720" cy="346" r="6" fill="#5FD3B5"/>
+
+    <text x="752" y="284" font-size="20" fill="#D5D9E0">Fix the upload test, then send</text>
+    <text x="752" y="310" font-size="20" fill="#D5D9E0">me the report.</text>
+
+    <rect x="752" y="328" width="34" height="38" rx="4" fill="none" stroke="#5FD3B5" stroke-width="1.5"/>
+    <path d="M776 328 V338 H786" fill="none" stroke="#5FD3B5" stroke-width="1.5"/>
+    <text x="800" y="353" font-size="20" fill="#5FD3B5">report.docx</text>
+    <text x="1124" y="353" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="16" fill="#6E7782">turn completed</text>
+  </g>
+</svg>

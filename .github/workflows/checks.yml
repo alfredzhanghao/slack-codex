@@ -1,0 +1,59 @@
+name: Code checks
+
+on:
+  push:
+    branches: [main, 'feature/**', 'codex/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12.10'
+          architecture: x64
+      - name: Install locked development dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Install project
+        id: project
+        run: python -m pip install --no-build-isolation --no-deps -e .
+      - name: Prepare test workspace
+        run: New-Item -ItemType Directory -Force -Path .work-ci | Out-Null
+      - name: Hosted regression (includes restricted-job refusal)
+        run: python -m pytest -q -m "not desktop_host" -o cache_dir=.work-ci/cache --basetemp=.work-ci/pytest --junitxml=.work-ci/tests.xml
+      - name: Report separate desktop-host gate
+        if: ${{ !cancelled() && steps.project.outcome == 'success' }}
+        run: |
+          @'
+          ### Validation scope
+          Hosted regression includes the restrictive Windows Job refusal test.
+          The positive detached-child survival test is explicitly deselected (`desktop_host`).
+          It must pass on the supported local Windows host before release; this run does not prove that gate.
+          No merge, deployment or P2 replacement is performed.
+          '@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+      - name: Static checks
+        if: ${{ !cancelled() && steps.project.outcome == 'success' }}
+        run: python -m ruff check src scripts tests
+      - name: Compile
+        if: ${{ !cancelled() && steps.project.outcome == 'success' }}
+        run: python -m compileall -q src scripts
+      - name: Build candidate
+        if: ${{ !cancelled() && steps.project.outcome == 'success' }}
+        run: python -m build --no-isolation --outdir .work-ci/dist
+      - name: Verify candidate archives
+        run: python scripts/p4_package_check.py .work-ci/dist --output .work-ci/package-check.json

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">How Slack Codex Bridge works</title>
+  <desc id="desc">Slack (DM, reply threads, cards, files) exchanges events and cards with a Windows bridge worker (chat-thread binding, input ownership, one-use approvals, SQLite operation ledger, attachment staging), which talks native RPC to a verified Codex desktop backend (native chats and turns, models and Skills, task output files). An on-demand supervisor starts, stops, restores and exits the worker with identity checks and at most three restarts.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8A93A0"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="520" rx="24" fill="#0E1116"/>
+
+  <g font-family="Segoe UI, -apple-system, BlinkMacSystemFont, PingFang SC, sans-serif">
+    <!-- Slack -->
+    <g transform="translate(40 40)">
+      <rect width="310" height="340" rx="16" fill="#161B22" stroke="#E8B04B" stroke-width="1.5"/>
+      <text x="24" y="50" font-size="28" font-weight="700" fill="#F3F0E8">Slack</text>
+      <g font-size="20" fill="#D5D9E0">
+        <text x="24" y="104">DM with the codex app</text>
+        <text x="24" y="146">Reply thread per chat</text>
+        <text x="24" y="188">Cards · buttons · modals</text>
+        <text x="24" y="230">Files in and out</text>
+      </g>
+      <line x1="24" y1="272" x2="286" y2="272" stroke="#2A313B" stroke-width="1.5"/>
+      <text x="24" y="310" font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="18" fill="#E8B04B">Socket Mode</text>
+    </g>
+
+    <!-- Bridge -->
+    <g transform="translate(445 40)">
+      <rect width="310" height="340" rx="16" fill="#1D232C" stroke="#F3F0E8" stroke-width="1.5"/>
+      <text x="24" y="50" font-size="28" font-weight="700" fill="#F3F0E8">Bridge worker</text>
+      <g font-size="20" fill="#D5D9E0">
+        <text x="24" y="104">Chat ↔ thread binding</text>
+        <text x="24" y="146">Input ownership</text>
+        <text x="24" y="188">One-use approvals</text>
+        <text x="24" y="230">SQLite operation ledger</text>
+      </g>
+      <line x1="24" y1="272" x2="286" y2="272" stroke="#2A313B" stroke-width="1.5"/>
+      <text x="24" y="310" font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="18" fill="#C9CED6">Windows · Python 3.12</text>
+    </g>
+
+    <!-- Codex -->
+    <g transform="translate(850 40)">
+      <rect width="310" height="340" rx="16" fill="#161B22" stroke="#5FD3B5" stroke-width="1.5"/>
+      <text x="24" y="50" font-size="28" font-weight="700" fill="#F3F0E8">Codex desktop</text>
+      <g font-size="20" fill="#D5D9E0">
+        <text x="24" y="104">Verified backend</text>
+        <text x="24" y="146">Native chats and turns</text>
+        <text x="24" y="188">Models · effort · Skills</text>
+        <text x="24" y="230">Task output files</text>
+      </g>
+      <line x1="24" y1="272" x2="286" y2="272" stroke="#2A313B" stroke-width="1.5"/>
+      <text x="24" y="310" font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="18" fill="#5FD3B5">allowlisted projects</text>
+    </g>
+
+    <!-- connectors -->
+    <g stroke="#8A93A0" stroke-width="2" fill="none">
+      <path d="M356 176 H439" marker-end="url(#arrow)"/>
+      <path d="M439 244 H356" marker-end="url(#arrow)"/>
+      <path d="M761 176 H844" marker-end="url(#arrow)"/>
+      <path d="M844 244 H761" marker-end="url(#arrow)"/>
+    </g>
+    <g font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="18" fill="#C9CED6" text-anchor="middle">
+      <text x="397" y="164">events</text>
+      <text x="397" y="272">cards</text>
+      <text x="802" y="164">RPC</text>
+      <text x="802" y="272">turns</text>
+    </g>
+
+    <!-- supervisor -->
+    <path d="M600 386 V414" stroke="#8A93A0" stroke-width="2" stroke-dasharray="3 5"/>
+    <rect x="40" y="414" width="1120" height="70" rx="14" fill="none" stroke="#2A313B" stroke-width="1.5"/>
+    <text x="68" y="457" font-size="22" font-weight="700" fill="#F3F0E8">On-demand supervisor</text>
+    <text x="322" y="457" font-family="ui-monospace, SFMono-Regular, Cascadia Mono, Consolas, Menlo, monospace" font-size="20" fill="#E8B04B">Start · Stop · Restore · Exit</text>
+    <text x="1132" y="457" text-anchor="end" font-size="20" fill="#8A93A0">identity-checked · ≤3 restarts</text>
+  </g>
+</svg>
