@@ -16,3 +16,4 @@ dist/
 *.sqlite*
 bridge.local.json
 /Slack Codex Bridge.lnk
+handoff.md
