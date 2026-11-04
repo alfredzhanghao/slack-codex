@@ -12,7 +12,7 @@ native Codex chat gets exactly one Slack reply thread. Tasks, steering, approval
 attachments and returned files all stay inside that thread.
 
 > [!NOTE]
-> **Status: personal alpha (0.3.0a15).** It controls one verified Codex desktop/backend
+> **Status: personal alpha (0.3.0a16).** It controls one verified Codex desktop/backend
 > pair for a single Slack owner on Windows. It is not a multi-user or hosted service.
 
 ## A session in Slack
@@ -102,7 +102,9 @@ workspace where you can install an app.
    bridge run             # connect Slack; Ctrl+C disconnects, Codex tasks keep running
    ```
 
-For daily use, the windowless `bridge-supervisor` with Start / Stop / Restore / Exit
+The candidate supervisor detects existing desktops and asks you to select and
+confirm a compatible shared connection. It does not restart private/unsupported
+instances. For daily use, the windowless `bridge-supervisor` with Start / Stop / Restore / Exit
 is described in [operations](docs/operations.md).
 
 ## Development

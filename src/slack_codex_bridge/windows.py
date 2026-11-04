@@ -12,7 +12,7 @@ from ctypes import wintypes as wt
 from pathlib import Path
 
 from .config import Config, child_environment
-from .model import BridgeError
+from .model import BridgeError, new_id
 
 
 def require_windows():
@@ -187,9 +187,12 @@ def tcp_rows():
 
 
 def correlate(record: dict):
+    return _correlate(record, tcp_rows(), processes())
+
+
+def _correlate(record, rows, inventory):
     port = record["port"]
-    rows = tcp_rows()
-    parents = {p["pid"]: p["parent"] for p in processes()}
+    parents = {p["pid"]: p["parent"] for p in inventory}
     for server in rows:
         if (server[1] != f"127.0.0.1:{port}" or server[3] != "ESTABLISHED"
                 or server[4] != str(record["backend"]["pid"])):
@@ -208,6 +211,122 @@ def correlate(record: dict):
             if not ancestor:
                 break
     raise BridgeError("desktop_peer_not_owned")
+
+
+def _instance_binary_proof(cfg):
+    verify_versions(cfg)
+    proof = {"backend_hash": binary_hash(cfg.backend_exe), "desktop_hash": binary_hash(cfg.desktop_exe)}
+    if record_path(cfg).exists():
+        previous = read_record(cfg)
+        if previous.get("status") not in {"verified", "stopped"}:
+            raise BridgeError("instance_previous_start_unconfirmed")
+        if any(previous.get(key) != value for key, value in proof.items()):
+            raise BridgeError("binary_hash_changed")
+    return proof
+
+
+def discover_instances(cfg):
+    """Read-only snapshots; a process listing is never attachment permission."""
+    inventory, rows = processes(), tcp_rows()
+    desktops = [p for p in inventory if p["name"].casefold() == cfg.desktop_exe.name.casefold()]
+    pids = {p["pid"] for p in desktops}
+    roots = sorted((p for p in desktops if p["parent"] not in pids), key=lambda p: p["pid"])
+    if not roots:
+        return []
+    proof, proof_error = {}, None
+    try:
+        proof = _instance_binary_proof(cfg)
+    except BridgeError as error:
+        proof_error = error.code
+    backends = []
+    for process in inventory:
+        if process["name"].casefold() == cfg.backend_exe.name.casefold():
+            try:
+                identity = process_identity(process["pid"])
+            except BridgeError:
+                continue
+            if identity and identity["path"].casefold() == str(cfg.backend_exe.resolve()).casefold():
+                backends.append(identity)
+    candidates = []
+    for root in roots:
+        item = {"id": new_id(), "observed_ms": int(time.time() * 1000), "connectable": False,
+                "reason": "no_shared_endpoint", "desktop": {"pid": root["pid"]},
+                "backend": None, "peer": None, "port": None, "desktop_version": cfg.desktop_version}
+        try:
+            desktop = process_identity(root["pid"])
+            if not desktop:
+                continue
+            item["desktop"] = desktop
+            if desktop["path"].casefold() != str(cfg.desktop_exe.resolve()).casefold():
+                raise BridgeError("instance_executable_not_configured")
+            if proof_error:
+                raise BridgeError(proof_error)
+            for backend in backends:
+                for row in rows:
+                    if (row[3] != "LISTENING" or row[4] != str(backend["pid"])
+                            or not row[1].startswith("127.0.0.1:")):
+                        continue
+                    port = int(row[1].rsplit(":", 1)[1])
+                    if not 1 <= port <= 65535:
+                        continue
+                    record = {"desktop": desktop, "backend": backend, "port": port}
+                    try:
+                        peer = _correlate(record, rows, inventory)
+                    except BridgeError:
+                        continue
+                    candidates.append(dict(item, id=new_id(), connectable=True, reason="shared_connection_verified",
+                                           backend=backend, port=port, peer=peer, binary_proof=dict(proof)))
+            if not any(c["desktop"] == desktop for c in candidates):
+                candidates.append(item)
+        except BridgeError as error:
+            item["reason"] = error.code
+            candidates.append(item)
+    return candidates
+
+
+def validate_instance(cfg, candidate):
+    """Validate a selected snapshot without changing the connection record."""
+    if not candidate.get("connectable"):
+        raise BridgeError("instance_not_connectable")
+    age = int(time.time() * 1000) - candidate.get("observed_ms", 0)
+    if not 0 <= age <= 120000:
+        raise BridgeError("instance_selection_expired_refresh")
+    proof = _instance_binary_proof(cfg)
+    if proof != candidate.get("binary_proof"):
+        raise BridgeError("instance_binary_changed_refresh")
+    for key, executable in [("desktop", cfg.desktop_exe), ("backend", cfg.backend_exe)]:
+        identity = candidate.get(key)
+        if (not isinstance(identity, dict) or type(identity.get("pid")) is not int
+                or identity.get("path", "").casefold() != str(executable.resolve()).casefold()
+                or process_identity(identity["pid"]) != identity):
+            raise BridgeError("instance_identity_changed_refresh")
+    port = candidate.get("port")
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise BridgeError("instance_endpoint_invalid")
+    endpoint = f"ws://127.0.0.1:{port}"
+    record = {"host_id": cfg.host_id, "status": "verified", "port": port, "endpoint": endpoint,
+              "desktop": dict(candidate["desktop"]), "backend": dict(candidate["backend"]),
+              "backend_version": cfg.backend_version, "desktop_version": cfg.desktop_version, **proof}
+    rows = tcp_rows()
+    if not any(r[1] == f"127.0.0.1:{port}" and r[3] == "LISTENING"
+               and r[4] == str(record["backend"]["pid"]) for r in rows):
+        raise BridgeError("instance_listener_changed_refresh")
+    record["peer"] = _correlate(record, rows, processes())
+    if record["peer"] != candidate.get("peer"):
+        raise BridgeError("instance_peer_changed_refresh")
+    return record
+
+
+def adopt_instance(cfg, candidate):
+    """Explicit user selection: recheck the exact chain, then save; never launch."""
+    with single_instance(cfg.host_id + "-launcher"):
+        record = validate_instance(cfg, candidate)
+        # Retain the old connection record; operation databases are untouched.
+        if record_path(cfg).exists():
+            backup = cfg.data_dir / f"desktop-session.{new_id()}.previous.json"
+            backup.write_bytes(record_path(cfg).read_bytes())
+        save_record(cfg, record)
+        return record
 
 
 def record_path(cfg):

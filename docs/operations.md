@@ -1,4 +1,25 @@
-# Windows operations — 0.3.0a15
+# Windows operations — 0.3.0a16 candidate
+
+## Existing instance selection
+
+The candidate supervisor scans existing configured desktop instances on startup.
+Select an instance and click **Connect selected**, then confirm its PID, path,
+version and backend/port. Refresh clears the selection. Snapshots expire after
+two minutes; identities, hashes and actual TCP peer are checked again at Connect.
+A read-only native initialize handshake must also succeed before the old record
+is replaced, followed by a second identity/peer check.
+Start/Restore also opens selection when a desktop is already running.
+
+Only an existing shared loopback WebSocket chain can be attached by this version.
+A private stdio instance remains visible with its compatibility reason and is left
+running. Confirmation does not create a missing transport. No desktop restart,
+backend termination or daemon start is performed by selection. Stop the bridge
+explicitly before selecting a different native chain. The previous connection
+record is backed up; operation databases and unknown outcomes are preserved.
+
+See [design and validation](adaptive-instance-selection.md). The currently pinned
+local a15 runtime is unchanged by source development; deploying this candidate is
+a separate operation after AGY review and CI.
 
 ## Existing local installation
 

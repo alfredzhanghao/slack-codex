@@ -1,4 +1,4 @@
-# Current architecture — 0.3.0a15
+# Current architecture — 0.3.0a16 candidate
 
 The Python package in `src/slack_codex_bridge/` is the application. Tests cover
 native RPC/Slack protocol fixtures and Windows lifecycle primitives. Historical
@@ -49,3 +49,10 @@ peer, with bounded unexpected-worker recovery and explicit Stop/Exit. See
 [operations](operations.md). Normal answers use Slack Markdown, while diagnostic
 receipts remain in explicit status/operation inspection. Model/task content is
 relayed literally under the [transport policy](content-transport-policy.md).
+
+Existing desktop selection is read-only until explicit confirmation. A short-lived
+snapshot binds the exact desktop/backend creation identities and actual loopback
+TCP peer. Confirmation rechecks versions/hashes and refuses to switch a different
+running worker. It backs up only the previous native connection record; it never
+terminates native processes or replays operations. Private/unavailable transports
+remain non-connectable. See [instance selection](adaptive-instance-selection.md).
