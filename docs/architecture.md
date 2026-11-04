@@ -1,4 +1,4 @@
-# Current architecture — 0.3.0a17 candidate
+# Current architecture — 0.3.0a18 candidate
 
 The Python package in `src/slack_codex_bridge/` is the application. Tests cover
 native RPC/Slack protocol fixtures and Windows lifecycle primitives. Historical

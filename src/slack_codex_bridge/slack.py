@@ -35,7 +35,9 @@ from .approval import FORM, response
 
 TS = re.compile(r"\d{1,13}\.\d{1,6}")
 TURN = re.compile(r"[0-9a-fA-F-]{36}")
-NAVIGATION_ACTIONS = {"bridge_bind", "bridge_project", "bridge_projects", "bridge_projects_next", "bridge_tasks_page"}
+NAVIGATION_ACTIONS = {"bridge_bind": "bind", "bridge_project": "project", "bridge_projects": "projects",
+                      "bridge_projects_next": "projects_page", "bridge_tasks_page": "tasks_page"}
+NAVIGATION_KINDS = frozenset(NAVIGATION_ACTIONS.values())
 NAVIGATION_ERRORS = {
     "backend_thread_active_writer", "backend_rejected", "backend_read_failed", "backend_disconnected",
     "backend_unavailable", "backend_invalid_snapshot", "backend_thread_not_loaded", "thread_not_trusted",
@@ -270,7 +272,7 @@ class Buttons:
         for token, old in list(self.tokens.items()):
             if old.expires < current:
                 self.tokens.pop(token)
-            elif (old.kind, old.binding_id, old.epoch, old.turn_id, old.thread_id, old.root,
+            elif intent.kind not in NAVIGATION_KINDS and (old.kind, old.binding_id, old.epoch, old.turn_id, old.thread_id, old.root,
                   old.request_token, old.choice, old.binding_version, old.operation_id,
                   old.operation_fingerprint, old.binding_root) == (
                     intent.kind, intent.binding_id, intent.epoch, intent.turn_id, intent.thread_id, intent.root,
@@ -285,6 +287,15 @@ class Buttons:
     def take(self, token) -> Intent | None:
         intent = self.tokens.pop(token, None)
         return intent if intent and intent.expires >= time.monotonic() else None
+
+    def navigation(self, token, kind, root) -> Intent | None:
+        if not isinstance(token, str) or kind not in NAVIGATION_KINDS or not isinstance(root, str) or not TS.fullmatch(root):
+            return None
+        intent = self.tokens.get(token)
+        if intent and intent.expires < time.monotonic():
+            self.tokens.pop(token)
+            return None
+        return intent if intent and intent.kind == kind and intent.root == root else None
 
     def clear(self):
         self.tokens.clear()
@@ -329,6 +340,7 @@ class Slack:
         self.last_render: dict[str, tuple[float, str]] = {}
         self.progress: dict[str, str] = {}
         self.seen_commands: dict[str, int] = {}
+        self.navigation_receipts: dict[tuple[str, str], float] = {}
         self.last_fault: str | None = None
         self.stop_error: BridgeError | None = None
         self.bot_user_id = ""
@@ -354,6 +366,7 @@ class Slack:
         self.ready = False
         self.opened_ms = 2**63 - 1
         self.buttons.clear()
+        self.navigation_receipts.clear()
         self.selected_project = ""
         self.staged_inputs.clear()
         # Keep pending markers until queued handlers observe their revoked epoch.
@@ -568,7 +581,8 @@ class Slack:
                                                       if now_ms() - t <= self.cfg.message_age_ms}
                                 after = self.command(state, text, epoch)
                 elif req.type == "interactive":
-                    state, prepared, after = await self.prepare_interaction(req.payload)
+                    state, prepared, after = await self.prepare_interaction(
+                        req.payload, navigation_delivery=req.envelope_id)
         except BridgeError as error:
             self.fault(error)
         except (AttributeError, TypeError, KeyError, ValueError):
@@ -1022,6 +1036,8 @@ class Slack:
 
     async def _command(self, state, text, epoch):
         root = state.binding.slack_root_ts if state else None
+        if text == "!task" or text.startswith("!task "):
+            text = "!tasks" + text[5:]
         if text == "!roots":
             rows = []
             for s in list(self.controller.states.values())[:20]:
@@ -1137,7 +1153,7 @@ class Slack:
             await self.web.post("Select a project with !project, then Open chat and Enter chat thread. "
                                 "Send tasks and attachments only inside that session's reply thread. No task was submitted.")
         elif text.startswith("!"):
-            await self.web.post("Commands: !project, !tasks [filter], !projects, !status, !control slack|desktop|status, "
+            await self.web.post("Commands: !project, !task [filter] / !tasks [filter], !projects, !status, !control slack|desktop|status, "
                                 "!steer FULL_TURN_ID -- text, !interrupt FULL_TURN_ID, !op OP_ID. "
                                 "!skills, !skill NAME_OR_PATH -- task, !file \"PATH\" -- task, "
                                 "!compact, !fork, !fork-bind OP_ID, !model [MODEL [EFFORT]], !models, !effort [VALUE]. "
@@ -1445,7 +1461,7 @@ class Slack:
                              "action_id": "bridge_" + kind, "value": token})
         return elements
 
-    async def prepare_interaction(self, payload):
+    async def prepare_interaction(self, payload, *, navigation_delivery=None):
         if (payload.get("team", {}).get("id") != self.cfg.team_id
                 or payload.get("user", {}).get("id") != self.cfg.user_id
                 or payload.get("api_app_id") != self.cfg.app_id):
@@ -1462,7 +1478,27 @@ class Slack:
             if payload.get("channel", {}).get("id") != self.cfg.dm_id:
                 return None, None, None
             token = payload["actions"][0].get("value")
-        intent = self.buttons.take(token)
+        if not isinstance(token, str):
+            return None, None, None
+        navigation_kind = None if is_modal else NAVIGATION_ACTIONS.get(payload["actions"][0].get("action_id"))
+        stored = self.buttons.tokens.get(token)
+        if stored and stored.kind in NAVIGATION_KINDS and not navigation_kind:
+            return None, None, None
+        intent = (self.buttons.navigation(token, navigation_kind, payload.get("container", {}).get("message_ts"))
+                  if navigation_kind else self.buttons.take(token))
+        if intent and navigation_kind and navigation_delivery is not None:
+            action_ts = payload["actions"][0].get("action_ts")
+            delivery = ("action:" + action_ts if isinstance(action_ts, str) and TS.fullmatch(action_ts)
+                        else "envelope:" + navigation_delivery if isinstance(navigation_delivery, str) else "")
+            if not delivery or len(delivery) > 200:
+                return None, None, None
+            current = time.monotonic()
+            self.navigation_receipts = {key: expires for key, expires in self.navigation_receipts.items()
+                                        if expires >= current}
+            key = (token, delivery)
+            if key in self.navigation_receipts or len(self.navigation_receipts) >= 4096:
+                return None, None, None
+            self.navigation_receipts[key] = intent.expires
         if not intent:
             if not is_modal and payload["actions"][0].get("action_id") in NAVIGATION_ACTIONS:
                 root = payload.get("container", {}).get("message_ts")

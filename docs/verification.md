@@ -1,5 +1,17 @@
 # Current verification and acceptance — 2026-11-04
 
+## a18 candidate reusable navigation and command alias
+
+`!task` aliases `!tasks`, including project/filter handling. A valid navigation
+button can reopen its exact existing chat/root. Each picker message gets independent
+root-scoped tokens even when picker posts overlap. Expiry and connection invalidation
+still apply; business controls remain one-use. Distinct clicks may navigate again,
+but redelivery of the same action timestamp/envelope is acknowledged without
+repeating navigation. No native task is used to test these changes.
+
+The current verification run and local installation status are retained in the
+per-task handoff. The a17 evidence below remains the IPC transport baseline.
+
 ## a17 candidate no-restart desktop IPC
 
 The current Windows desktop's existing coordination pipe was verified against its
