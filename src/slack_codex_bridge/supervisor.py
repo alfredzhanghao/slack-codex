@@ -34,6 +34,7 @@ def instance_description(candidate):
             "version_mismatch_writes_disabled": "Version is incompatible with this bridge profile",
             "binary_hash_changed": "Binary changed; verify the deployment before connecting",
             "instance_previous_start_unconfirmed": "An earlier native start is unconfirmed; inspect it first",
+            "instance_different_user_or_session": "Instance belongs to a different Windows user or login session",
         }.get(candidate["reason"], "Identity or connection unavailable; refresh or verify the profile")
     return f"Desktop {desktop['pid']} | {detail}"
 

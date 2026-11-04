@@ -8,6 +8,8 @@ version and backend/port. Refresh clears the selection. Snapshots expire after
 two minutes; identities, hashes and actual TCP peer are checked again at Connect.
 A read-only native initialize handshake must also succeed before the old record
 is replaced, followed by a second identity/peer check.
+Desktop/backend/peer must belong to the current Windows user and login session;
+other-user/session instances cannot be attached by confirmation.
 Start/Restore also opens selection when a desktop is already running.
 
 Only an existing shared loopback WebSocket chain can be attached by this version.

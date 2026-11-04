@@ -38,6 +38,7 @@ def native(cfg, monkeypatch):
     monkeypatch.setattr(windows, "process_identity", lambda pid: deepcopy(identities.get(pid)))
     monkeypatch.setattr(windows, "tcp_rows", lambda: deepcopy(rows))
     monkeypatch.setattr(windows, "verify_versions", lambda _: None)
+    monkeypatch.setattr(windows, "same_user_session", lambda _: True)
     monkeypatch.setattr(windows, "single_instance", lambda _: nullcontext())
     monkeypatch.setattr(windows, "detached", lambda *_: pytest.fail("selection must never launch native processes"))
     return identities, rows
@@ -119,6 +120,26 @@ def test_discovery_reports_incompatible_version_without_native_effects(cfg, nati
     candidates = windows.discover_instances(cfg)
     assert all(not c["connectable"] and c["reason"] == "version_mismatch_writes_disabled" for c in candidates)
     assert not windows.record_path(cfg).exists()
+
+
+@pytest.mark.parametrize("pid", [10, 20, 11])
+def test_owner_or_login_session_change_never_replaces_connection(cfg, native, monkeypatch, pid):
+    candidate = windows.discover_instances(cfg)[0]
+    monkeypatch.setattr(windows, "same_user_session", lambda target: target != pid)
+    with pytest.raises(BridgeError, match="different_user_or_session"):
+        windows.adopt_instance(cfg, candidate)
+    assert not windows.record_path(cfg).exists()
+
+
+def test_unreadable_backend_owner_does_not_hide_another_valid_instance(cfg, native, monkeypatch):
+    def visible(pid):
+        if pid == 20:
+            raise BridgeError("instance_owner_unavailable")
+        return True
+    monkeypatch.setattr(windows, "same_user_session", visible)
+    candidates = windows.discover_instances(cfg)
+    assert any(c["desktop"]["pid"] == 30 and c["connectable"] for c in candidates)
+    assert not any(c["desktop"]["pid"] == 10 and c["connectable"] for c in candidates)
 
 
 def test_protocol_failure_does_not_replace_native_record(cfg, native):

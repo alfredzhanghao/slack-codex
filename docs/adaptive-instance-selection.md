@@ -12,6 +12,9 @@ compatible instance without restarting or terminating native processes.
 
 - Enumerate process identities and owned loopback TCP connections, never process
   command lines, environment blocks, credential files or task payloads.
+- Require the desktop, backend and actual peer to belong to the current Windows
+  user and login session. Compare OS token-owner metadata locally without exposing
+  SID values; an unreadable owner is not permission to attach.
 - Show matching desktop roots with PID/path/version, backend/port when an actual
   desktop-to-backend connection exists, and an actionable compatibility reason.
 - A list item is a short-lived snapshot. Refresh clears selection; Connect needs
@@ -54,7 +57,7 @@ review, PR, current CI and merge. Deployment/live adoption is a separate step.
 
 ## Implementation result
 
-Source candidate version: 0.3.0a16. Full supported-host verification passed 701
+Source candidate version: 0.3.0a16. Full supported-host verification passed 705
 tests with zero failures/errors/skips, plus lint/build/package/offline-install
 checks. Synthetic native UI selection, Cancel, explicit confirmation and Exit
 were exercised; a real Windows process/TCP fixture retained both process identities.

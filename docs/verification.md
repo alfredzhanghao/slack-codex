@@ -19,9 +19,9 @@ Read-only discovery of this host's current desktop reports no_shared_endpoint an
 leaves its identity record unchanged. No real Codex restart/adoption, Slack/model
 request, upload or deployed-runtime update was performed.
 
-Full a16 candidate verification passed **701 tests, zero failures/errors/skips**,
+Full a16 candidate verification passed **705 tests, zero failures/errors/skips**,
 Ruff, compilation, build, archive/source checks, offline installation and installed
-imports. Run: `.work-issues/verification-079ff881-7251-4e6b-982b-58d90317d59c/`.
+imports. Run: `.work-issues/verification-68682815-92b4-49e8-b43d-01f60822266a/`.
 The final documentation was then rebuilt/rechecked without changing application
 modules. Archive identities and the exact reviewed source target are retained in
 the private verification run and per-task AGY handoff. The records below describe

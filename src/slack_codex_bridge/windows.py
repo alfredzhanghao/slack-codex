@@ -75,6 +75,49 @@ def process_identity(pid: int) -> dict | None:
         kernel.CloseHandle(handle)
 
 
+def same_user_session(pid: int) -> bool:
+    """Compare native token owner and login session without exposing either."""
+    kernel = _kernel()
+    kernel.ProcessIdToSessionId.argtypes = [wt.DWORD, ctypes.POINTER(wt.DWORD)]
+    sessions = [wt.DWORD(), wt.DWORD()]
+    for target, session in zip((os.getpid(), pid), sessions):
+        if not kernel.ProcessIdToSessionId(target, ctypes.byref(session)):
+            raise BridgeError("instance_owner_unavailable")
+    if sessions[0].value != sessions[1].value:
+        return False
+    kernel.OpenProcess.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
+    kernel.OpenProcess.restype = wt.HANDLE
+    kernel.CloseHandle.argtypes = [wt.HANDLE]
+    security = ctypes.WinDLL("advapi32", use_last_error=True)
+    security.OpenProcessToken.argtypes = [wt.HANDLE, wt.DWORD, ctypes.POINTER(wt.HANDLE)]
+    security.GetTokenInformation.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void_p,
+                                           wt.DWORD, ctypes.POINTER(wt.DWORD)]
+    security.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    buffers = []
+    for target in (os.getpid(), pid):
+        process = kernel.OpenProcess(0x1000, False, target)
+        token = wt.HANDLE()
+        try:
+            if not process or not security.OpenProcessToken(process, 8, ctypes.byref(token)):
+                raise BridgeError("instance_owner_unavailable")
+            size = wt.DWORD()
+            security.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))  # TokenUser
+            if not 0 < size.value <= 65536:
+                raise BridgeError("instance_owner_unavailable")
+            buffer = ctypes.create_string_buffer(size.value)
+            if not security.GetTokenInformation(token, 1, buffer, size, ctypes.byref(size)):
+                raise BridgeError("instance_owner_unavailable")
+            buffers.append(buffer)
+        finally:
+            if token:
+                kernel.CloseHandle(token)
+            if process:
+                kernel.CloseHandle(process)
+    # TOKEN_USER starts with SID_AND_ATTRIBUTES.Sid. Buffers own the SID bytes.
+    sids = [ctypes.cast(buffer, ctypes.POINTER(ctypes.c_void_p))[0] for buffer in buffers]
+    return bool(security.EqualSid(*sids))
+
+
 def _handle_identity(kernel, handle, pid):
     buf = ctypes.create_unicode_buffer(32768)
     size = wt.DWORD(len(buf))
@@ -243,10 +286,11 @@ def discover_instances(cfg):
         if process["name"].casefold() == cfg.backend_exe.name.casefold():
             try:
                 identity = process_identity(process["pid"])
+                if (identity and identity["path"].casefold() == str(cfg.backend_exe.resolve()).casefold()
+                        and same_user_session(identity["pid"])):
+                    backends.append(identity)
             except BridgeError:
                 continue
-            if identity and identity["path"].casefold() == str(cfg.backend_exe.resolve()).casefold():
-                backends.append(identity)
     candidates = []
     for root in roots:
         item = {"id": new_id(), "observed_ms": int(time.time() * 1000), "connectable": False,
@@ -257,6 +301,8 @@ def discover_instances(cfg):
             if not desktop:
                 continue
             item["desktop"] = desktop
+            if not same_user_session(desktop["pid"]):
+                raise BridgeError("instance_different_user_or_session")
             if desktop["path"].casefold() != str(cfg.desktop_exe.resolve()).casefold():
                 raise BridgeError("instance_executable_not_configured")
             if proof_error:
@@ -272,6 +318,8 @@ def discover_instances(cfg):
                     record = {"desktop": desktop, "backend": backend, "port": port}
                     try:
                         peer = _correlate(record, rows, inventory)
+                        if not same_user_session(peer["pid"]):
+                            continue
                     except BridgeError:
                         continue
                     candidates.append(dict(item, id=new_id(), connectable=True, reason="shared_connection_verified",
@@ -300,6 +348,8 @@ def validate_instance(cfg, candidate):
                 or identity.get("path", "").casefold() != str(executable.resolve()).casefold()
                 or process_identity(identity["pid"]) != identity):
             raise BridgeError("instance_identity_changed_refresh")
+        if not same_user_session(identity["pid"]):
+            raise BridgeError("instance_different_user_or_session")
     port = candidate.get("port")
     if type(port) is not int or not 1 <= port <= 65535:
         raise BridgeError("instance_endpoint_invalid")
@@ -314,6 +364,8 @@ def validate_instance(cfg, candidate):
     record["peer"] = _correlate(record, rows, processes())
     if record["peer"] != candidate.get("peer"):
         raise BridgeError("instance_peer_changed_refresh")
+    if not same_user_session(record["peer"]["pid"]):
+        raise BridgeError("instance_different_user_or_session")
     return record
 
 
