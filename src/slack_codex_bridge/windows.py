@@ -268,6 +268,37 @@ def _instance_binary_proof(cfg):
     return proof
 
 
+def pipe_server_identity(handle=None):
+    """Identify the existing coordination server; do not send or start anything."""
+    if os.name != "nt":
+        return None
+    from .coordination import PIPE
+    kernel = _kernel()
+    owned = handle is None
+    if owned:
+        kernel.WaitNamedPipeW.argtypes = [wt.LPCWSTR, wt.DWORD]
+        if not kernel.WaitNamedPipeW(PIPE, 100):
+            return None
+        kernel.CreateFileW.argtypes = [wt.LPCWSTR, wt.DWORD, wt.DWORD, ctypes.c_void_p,
+                                      wt.DWORD, wt.DWORD, wt.HANDLE]
+        kernel.CreateFileW.restype = wt.HANDLE
+        handle = kernel.CreateFileW(PIPE, 0xC0000000, 0, None, 3, 0x40000000, None)
+        if handle == ctypes.c_void_p(-1).value:
+            return None
+    try:
+        pid = wt.ULONG()
+        kernel.GetNamedPipeServerProcessId.argtypes = [wt.HANDLE, ctypes.POINTER(wt.ULONG)]
+        if not kernel.GetNamedPipeServerProcessId(handle, ctypes.byref(pid)):
+            return None
+        if not same_user_session(pid.value):
+            return None
+        return process_identity(pid.value)
+    finally:
+        if owned:
+            kernel.CloseHandle.argtypes = [wt.HANDLE]
+            kernel.CloseHandle(handle)
+
+
 def discover_instances(cfg):
     """Read-only snapshots; a process listing is never attachment permission."""
     inventory, rows = processes(), tcp_rows()
@@ -281,6 +312,8 @@ def discover_instances(cfg):
         proof = _instance_binary_proof(cfg)
     except BridgeError as error:
         proof_error = error.code
+    from .coordination import supported
+    pipe_owner = pipe_server_identity() if not proof_error and supported(proof, cfg) else None
     backends = []
     for process in inventory:
         if process["name"].casefold() == cfg.backend_exe.name.casefold():
@@ -325,7 +358,11 @@ def discover_instances(cfg):
                     candidates.append(dict(item, id=new_id(), connectable=True, reason="shared_connection_verified",
                                            backend=backend, port=port, peer=peer, binary_proof=dict(proof)))
             if not any(c["desktop"] == desktop for c in candidates):
-                candidates.append(item)
+                if pipe_owner == desktop:
+                    candidates.append(dict(item, connectable=True, reason="desktop_coordination_verified",
+                                           transport="desktop_ipc", peer=desktop, binary_proof=dict(proof)))
+                else:
+                    candidates.append(item)
         except BridgeError as error:
             item["reason"] = error.code
             candidates.append(item)
@@ -342,6 +379,21 @@ def validate_instance(cfg, candidate):
     proof = _instance_binary_proof(cfg)
     if proof != candidate.get("binary_proof"):
         raise BridgeError("instance_binary_changed_refresh")
+    if candidate.get("transport") == "desktop_ipc":
+        from .coordination import endpoint, supported
+        identity = candidate.get("desktop")
+        if (not supported(proof, cfg) or not isinstance(identity, dict) or
+                identity.get("path", "").casefold() != str(cfg.desktop_exe.resolve()).casefold() or
+                process_identity(identity.get("pid")) != identity or pipe_server_identity() != identity or
+                candidate.get("peer") != identity or candidate.get("backend") is not None or
+                candidate.get("port") is not None):
+            raise BridgeError("desktop_ipc_identity_changed")
+        if not same_user_session(identity["pid"]):
+            raise BridgeError("instance_different_user_or_session")
+        return {"host_id": cfg.host_id, "status": "verified", "transport": "desktop_ipc", "port": None,
+                "endpoint": endpoint(identity), "desktop": dict(identity), "backend": None,
+                "peer": dict(identity), "backend_version": cfg.backend_version,
+                "desktop_version": cfg.desktop_version, **proof}
     for key, executable in [("desktop", cfg.desktop_exe), ("backend", cfg.backend_exe)]:
         identity = candidate.get(key)
         if (not isinstance(identity, dict) or type(identity.get("pid")) is not int
@@ -395,7 +447,10 @@ def save_record(cfg, record):
 def read_record(cfg):
     try:
         value = json.loads(record_path(cfg).read_text(encoding="utf-8"))
-        if value["host_id"] != cfg.host_id or value["endpoint"] != f"ws://127.0.0.1:{value['port']}":
+        from .coordination import endpoint
+        expected = (endpoint(value["desktop"]) if value.get("transport") == "desktop_ipc"
+                    else f"ws://127.0.0.1:{value['port']}")
+        if value["host_id"] != cfg.host_id or value["endpoint"] != expected:
             raise BridgeError("session_identity_mismatch")
         return value
     except (OSError, ValueError, KeyError, TypeError):
@@ -411,6 +466,19 @@ def verify_record(cfg: Config, *, require_desktop=True, check_binaries=True):
         raise BridgeError("session_version_changed")
     if record["desktop"]["path"].lower() != str(cfg.desktop_exe.resolve()).lower():
         raise BridgeError("desktop_path_changed")
+    if record.get("transport") == "desktop_ipc":
+        from .coordination import supported
+        if (record.get("backend") is not None or record.get("port") is not None or
+                record.get("peer") != record["desktop"] or not supported(record, cfg) or
+                process_identity(record["desktop"]["pid"]) != record["desktop"] or
+                pipe_server_identity() != record["desktop"]):
+            raise BridgeError("desktop_ipc_identity_changed")
+        if check_binaries:
+            verify_versions(cfg)
+            if (binary_hash(cfg.desktop_exe) != record["desktop_hash"] or
+                    binary_hash(cfg.backend_exe) != record["backend_hash"]):
+                raise BridgeError("binary_hash_changed")
+        return record
     if record["backend"]["path"].lower() != str(cfg.backend_exe.resolve()).lower():
         raise BridgeError("backend_path_changed")
     if process_identity(record["backend"]["pid"]) != record["backend"]:
@@ -501,6 +569,8 @@ async def stop(cfg: Config):
 
     with single_instance(cfg.host_id + "-launcher"), single_instance(cfg.host_id + "-run"):
         record = read_record(cfg)
+        if record.get("transport") == "desktop_ipc":
+            raise BridgeError("desktop_ipc_native_lifecycle_not_owned")
         if record.get("desktop") and process_identity(record["desktop"]["pid"]) == record["desktop"]:
             raise BridgeError("desktop_still_open_stop_refused")
         if any(p["name"].lower() == cfg.desktop_exe.name.lower() for p in processes()):

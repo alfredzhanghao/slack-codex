@@ -12,7 +12,7 @@ native Codex chat gets exactly one Slack reply thread. Tasks, steering, approval
 attachments and returned files all stay inside that thread.
 
 > [!NOTE]
-> **Status: personal alpha (0.3.0a16).** It controls one verified Codex desktop/backend
+> **Status: personal alpha (0.3.0a17).** It controls one verified Codex desktop/backend
 > pair for a single Slack owner on Windows. It is not a multi-user or hosted service.
 
 ## A session in Slack
@@ -49,6 +49,12 @@ unexpectedly, the supervisor restarts it at most three times (2/4/8 s back-off) 
 only when identity can be verified. See [architecture](docs/architecture.md).
 
 ## Capabilities
+
+**Connect without restarting:** the supervisor can attach an existing shared
+WebSocket instance or the pinned Windows desktop IPC build. IPC supports loaded
+chats, ordinary tasks, exact-turn Stop and files; use the desktop for Steer,
+approvals, model/Skills settings, Compact and Fork. See
+[connection modes and version boundary](docs/adaptive-instance-selection.md).
 
 - **Navigation**: project and chat discovery, one persistent thread per native chat, explicit Fork.
 - **Control**: Take control, Steer, Stop, approvals and structured answers.

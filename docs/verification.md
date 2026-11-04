@@ -1,6 +1,41 @@
 # Current verification and acceptance — 2026-11-04
 
-## a16 candidate instance selection
+## a17 candidate no-restart desktop IPC
+
+The current Windows desktop's existing coordination pipe was verified against its
+actual server process identity, configured executable/hash/package version and
+Windows user/session. Source discovery reports a connectable IPC instance without
+a TCP backend peer. Initialize, exact chat owner discovery, model-settings reads
+and targeted active-chat snapshots succeeded without a native restart.
+
+An isolated test connection record exercised selection validation, initialize,
+adoption, persisted-record verification and two fresh exact-chat snapshots. The
+connection remained open, all four known native process creation identities and
+the original connection-record hash stayed unchanged. This adopted only a separate
+test record; the installed a15 profile, its store and the running desktop were
+not replaced. Private sanitized results are retained in
+`.work-issues/shared-interface/live-readback.json` and
+`live-isolated-adoption.json`.
+
+Full a17 verification passed **752 tests with zero failures/errors/skips**, Ruff,
+compilation, wheel/sdist integrity, offline installation and installed imports.
+Run: `.work-issues/verification-4f844d45-17ee-412c-88a3-8daa7eef43f3/`.
+The final result documentation is repackaged and archive-checked separately;
+application/test source is unchanged from this full run.
+
+The 47 new regression cases cover actual framing, source/project filtering and
+pagination, read-only metadata, Windows extended paths, exact owner/turn mapping,
+missing write receipts, unsupported parameters/methods, capability-aware Slack
+cards, version/package pins, stale selection, record preservation and native-stop
+refusal. The full Windows check and packaging result are recorded in the current
+per-task handoff. No live Slack/model task, approval, upload or deployed runtime
+update is claimed. IPC task/file delivery remains user acceptance; the successful
+read connection is not presented as full WebSocket capability parity.
+
+See [the transport contract](adaptive-instance-selection.md) for supported actions
+and why Steer/approvals/settings/Skills/Compact/Fork stay in the desktop on IPC.
+
+## Prior a16 instance selection baseline
 
 The new candidate scans existing desktop roots and asks for explicit selection
 and confirmation. The pinned local a15 installation is not replaced. Tests cover
@@ -15,7 +50,7 @@ A synthetic native supervisor window displayed both supported and unsupported
 instances. Cancelling confirmation left only the scan event; confirming produced
 one fake attachment/start, and Exit stopped only that fake worker. This is UI
 acceptance with synthetic instances, not an actual native Codex attachment.
-Read-only discovery of this host's current desktop reports no_shared_endpoint and
+At the a16 baseline, read-only discovery of this host's desktop reported no_shared_endpoint and
 leaves its identity record unchanged. No real Codex restart/adoption, Slack/model
 request, upload or deployed-runtime update was performed.
 

@@ -1422,6 +1422,9 @@ class Slack:
         text = ('Session settings. Write ordinary tasks directly in this reply thread. '
                 'File retrieval: !artifacts or ask to send a known output file. '
                 'Compact and Fork are explicit operations; input ownership and approvals still apply.')
+        if getattr(self.backend, "desktop_only_controls", ()):
+            text = ('Send tasks and retrieve files in this thread. For this connection, '
+                    'use the Codex desktop for Steer, approvals, model/Skills settings, Compact and Fork.')
         elements = self.settings_controls(state)
         root = await self.web.post(text, root=state.binding.slack_root_ts,
             blocks=text_sections(text) + [{"type": "actions", "elements": elements}])
@@ -1434,6 +1437,8 @@ class Slack:
         for kind, label in [("model_picker", "Model"), ("effort_picker", "Reasoning effort"),
                             ("skills", "Skills"), ("compact", "Compact"), ("fork", "Fork"),
                             ("artifacts", "Get output files")]:
+            if kind in getattr(self.backend, "desktop_only_controls", ()):
+                continue
             token = self.buttons.issue(Intent(kind, state.binding.binding_id, state.epoch,
                 root=state.binding.slack_root_ts, binding_version=state.binding.binding_version))
             elements.append({"type": "button", "text": {"type": "plain_text", "text": label},
@@ -2031,6 +2036,8 @@ class Slack:
             text += f"\nNext settings: {effort.get('model')} / {effort.get('value')} ({effort.get('state')})"
         if state.blocker_ids:
             text += "\nQuery blocking operations: " + ", ".join("!op " + opid for opid in state.blocker_ids[:3])
+        if getattr(self.backend, "desktop_only_controls", ()):
+            text += "\nFor this connection, use Codex desktop for Steer, approvals and model/Skills settings."
         if state.binding.binding_id in self.progress:
             text += "\nProgress: " + self.progress[state.binding.binding_id][-600:]
         elements = []
@@ -2041,6 +2048,8 @@ class Slack:
                              "action_id": "bridge_" + kind, "value": token})
         if s and s.active_turn:
             for kind, label in [("steer", "Steer"), ("interrupt", "Stop")]:
+                if kind in getattr(self.backend, "desktop_only_controls", ()):
+                    continue
                 token = self.buttons.issue(Intent(kind, state.binding.binding_id, state.epoch, s.active_turn,
                                                   root=state.binding.slack_root_ts))
                 elements.append({"type": "button", "text": {"type": "plain_text", "text": label},

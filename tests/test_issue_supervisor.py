@@ -298,7 +298,7 @@ def test_adapter_refuses_switching_a_running_worker_without_touching_native_reco
     candidate = {"desktop": {"pid": 20}, "backend": {"pid": 30}, "peer": {"pid": 20}, "port": 9000}
     a.command = lambda _: {"running": True, "native_chain": {"desktop": {"pid": 99}}}
     a.native = lambda: True
-    monkeypatch.setattr(windows, "validate_instance", lambda *_: {})
+    monkeypatch.setattr(windows, "validate_instance", lambda *_: {"endpoint": "ws://127.0.0.1:9000"})
     monkeypatch.setattr(windows, "adopt_instance", lambda *_: pytest.fail("must retain existing chain"))
     with pytest.raises(BridgeError, match="stop_bridge_before_switch"):
         a.attach(candidate)

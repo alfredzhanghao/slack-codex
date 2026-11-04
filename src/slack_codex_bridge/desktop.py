@@ -151,10 +151,15 @@ class RPC:
 class Desktop:
     def __init__(self, cfg: Config, endpoint: str):
         address = urlparse(endpoint)
-        if address.scheme != "ws" or address.hostname != "127.0.0.1" or not address.port or address.username:
-            raise BridgeError("unverified_backend_endpoint")
         self.cfg = cfg
-        self.rpc = RPC(endpoint, cfg.request_timeout, self._notify)
+        if address.scheme == "codex-ipc":
+            from .coordination import CoordinationRPC
+            self.rpc = CoordinationRPC(cfg, endpoint, self._notify)
+        else:
+            if address.scheme != "ws" or address.hostname != "127.0.0.1" or not address.port or address.username:
+                raise BridgeError("unverified_backend_endpoint")
+            self.rpc = RPC(endpoint, cfg.request_timeout, self._notify)
+        self.desktop_only_controls = getattr(self.rpc, "desktop_only_controls", frozenset())
         self.events: asyncio.Queue[Event] = asyncio.Queue(maxsize=512)
         self.terminals: dict[tuple[str, str], str] = {}
         self.approvals: dict[str, str] = {}
