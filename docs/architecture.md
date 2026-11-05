@@ -77,3 +77,12 @@ retaining an old online/idle card. Fresh native active status determines working
 presentation, while exact-turn controls and terminal corroboration stay separate.
 IPC snapshots expose only current-turn public commentary as literal progress;
 reasoning/tool output and older turns are excluded. See [session display](session-display.md).
+
+
+## Project display metadata
+
+Project labels are read from the desktop UI metadata next to the configured
+state database and projected onto exact existing allowlist entries. Pickers refresh
+the cache, show names rather than directories, and preserve literal native names
+under localization. Button capabilities retain canonical paths and native thread
+IDs; presentation never expands admission. See [project display names](project-display-names.md).

@@ -12,7 +12,7 @@ native Codex chat gets exactly one Slack reply thread. Tasks, steering, approval
 attachments and returned files all stay inside that thread.
 
 > [!NOTE]
-> **Status: personal alpha (0.3.0a20).** It controls one verified Codex desktop/backend
+> **Status: personal alpha (0.3.0a21).** It controls one verified Codex desktop/backend
 > pair for a single Slack owner on Windows. It is not a multi-user or hosted service.
 
 ## A session in Slack
@@ -56,7 +56,7 @@ chats, ordinary tasks, exact-turn Stop and files; use the desktop for Steer,
 approvals, model/Skills settings, Compact and Fork. See
 [connection modes and version boundary](docs/adaptive-instance-selection.md).
 
-- **Navigation**: project and chat discovery, one persistent thread per native chat, explicit Fork.
+- **Navigation**: project and chat discovery using renamed desktop project labels, one persistent thread per native chat, explicit Fork.
 - **Control**: Take control, Steer, Stop, approvals and structured answers.
 - **Settings**: native model and reasoning-effort selectors, paged Skills with exact-path details, Compact.
 - **Files in**: up to 5 images or documents per input (10 MiB each, 20 MiB total), staged for 10 minutes when sent alone.

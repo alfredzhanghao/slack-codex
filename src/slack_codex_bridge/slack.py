@@ -27,6 +27,7 @@ from .quota import quota_text
 from .inputs import parse_files, local_file
 from .artifacts import capture, automatic, file_identity
 from . import preferences
+from .project_names import labels as project_labels
 from .i18n import Literal, translate, blocks as translated_blocks
 from . import attachments
 from .skill_view import description as skill_description
@@ -352,6 +353,7 @@ class Slack:
         self.binding_lock = asyncio.Lock()
         self.last_render: dict[str, tuple[float, str]] = {}
         self.progress: dict[str, str] = {}
+        self.project_labels = {str(path): path.name or "Project" for path in cfg.projects}
         self.seen_commands: dict[str, int] = {}
         self.navigation_receipts: dict[tuple[str, str], float] = {}
         self.last_fault: str | None = None
@@ -415,6 +417,7 @@ class Slack:
 
     async def connect(self):
         self.lost()
+        await self.refresh_project_labels()
         if self.socket:
             await self.socket.close()
         auth = await self.web.call("auth.test")
@@ -1399,7 +1402,16 @@ class Slack:
                 {"type": "input", "block_id": "reason", "label": {"type": "plain_text", "text": "What did you check?"},
                  "element": {"type": "plain_text_input", "action_id": "text", "multiline": True, "max_length": 1000}}]})
 
+    async def refresh_project_labels(self):
+        self.project_labels = await asyncio.to_thread(project_labels, self.cfg)
+
+    def project_label(self, path):
+        candidate = Path(path)
+        return next((name for root, name in self.project_labels.items() if Path(root) == candidate),
+                    candidate.name or "Project")
+
     async def projects(self, page=0):
+        await self.refresh_project_labels()
         projects = sorted({str(p) for p in self.cfg.projects}, key=str.casefold)
         blocks, issued = [], []
         for cwd in projects[page * 20:(page + 1) * 20]:
@@ -1407,7 +1419,7 @@ class Slack:
             issued.append(intent)
             token = self.buttons.issue(intent)
             blocks.append({"type": "section", "text": {"type": "plain_text", "text":
-                f"{cwd}\nSelect to load fresh non-archived chats."},
+                Literal(self.project_label(cwd))},
                 "accessory": {"type": "button", "text": {"type": "plain_text", "text": "View chats"},
                               "action_id": "bridge_project", "value": token}})
         if (page + 1) * 20 < len(projects):
@@ -1421,6 +1433,7 @@ class Slack:
             intent.root = ts
 
     async def tasks(self, query="", project="", page=0):
+        await self.refresh_project_labels()
         if project:
             self.selected_project = project
         try:
@@ -1444,12 +1457,13 @@ class Slack:
             token = self.buttons.issue(intent)
             issued.append(intent)
             block = {"type": "section", "text": {"type": "plain_text", "text":
-                     clean(f"{thread.title}\n{thread.cwd}\n{thread.id}", 500)}}
+                     Literal(clean(f"{thread.title}\n{self.project_label(thread.cwd)}\n{thread.id}", 500))}}
             if thread.allowed:
                 block["accessory"] = {"type": "button", "text": {"type": "plain_text", "text": "Open chat"},
                                       "action_id": "bridge_bind", "value": token}
             else:
-                block["text"]["text"] += "\nProject access not enabled. Enable this exact project before binding."
+                block["text"]["text"] = Literal(block["text"]["text"] + "\n" + translate(
+                    "Project access not enabled. Enable this exact project before binding.", preferences.language(self.cfg)))
             blocks.append(block)
         navigation = []
         for kind, label, choice in [("projects", "Choose project", "")] + (
@@ -1460,8 +1474,12 @@ class Slack:
             navigation.append({"type": "button", "text": {"type": "plain_text", "text": label},
                                "action_id": "bridge_" + kind, "value": self.buttons.issue(intent)})
         blocks.append({"type": "actions", "elements": navigation})
-        ts = await self.web.post(f"Fresh non-archived chats: {total}; page {page + 1}. "
-                                 f"Project: {project or 'all projects'}. Use !tasks to refresh or !project to change project.", blocks=blocks)
+        language = preferences.language(self.cfg)
+        heading = translate(f"Fresh non-archived chats: {total}; page {page + 1}.", language)
+        heading += "\n" + translate("Project:", language) + " " + (
+            self.project_label(project) if project else translate("all projects", language))
+        heading += "\n" + translate("Use !tasks to refresh or !project to change project.", language)
+        ts = await self.web.post(Literal(heading), blocks=blocks)
         for intent in issued:
             intent.root = ts
 
@@ -2156,9 +2174,10 @@ class Slack:
         else:
             headline = "Context remaining: unknown (waiting for native usage telemetry)."
         title = s.thread.title if s else state.binding.codex_thread_id
+        project_line = f"{self.project_label(state.binding.project_path)} / {title[:140]}"
         text = (headline + "\n"
                 f"Model: {s.model if s and s.model else 'unconfirmed'} | Effort: {s.effort if s and s.effort else 'unconfirmed'}\n"
-                f"{Path(state.binding.project_path).name} / {title[:140]}\n"
+                f"{project_line}\n"
                 f"Status: {'online' if online else 'syncing/offline'} | {activity}\n"
                 f"Input: {state.mode} (GUI is not locked) | Approval pending: {pending}\n"
                 "Reply in this thread to continue this session. Settings contains skills and file retrieval.")
@@ -2191,10 +2210,15 @@ class Slack:
                                  "action_id": "bridge_" + kind, "value": token})
                 if kind == "interrupt":
                     elements[-1]["style"] = "danger"
-        blocks = text_sections(text)
-        blocks.append({"type": "actions", "elements": elements})
         language = preferences.language(self.cfg)
-        text, blocks = translate(text, language), translated_blocks(blocks, language)
+        # Localize bridge lines independently; project/chat names remain literal.
+        header, _, rest = text.partition("\n" + project_line + "\n")
+        text = "\n".join([translate(header, language), project_line]
+                         + [translate(line, language) for line in rest.split("\n")])
+        blocks = text_sections(text)
+        for block in blocks:
+            block["text"]["text"] = Literal(block["text"]["text"])
+        blocks.append(translated_blocks({"type": "actions", "elements": elements}, language))
         progress = (s.progress or self.progress.get(state.binding.binding_id, "")) if online and not s.idle else ""
         if progress:
             progress_text = translate("Progress:", language) + " " + progress[-600:]

@@ -1,6 +1,21 @@
 # Current verification and acceptance — 2026-11-05
 
 
+## a21 candidate desktop project display names
+
+Project and conversation pickers show desktop-renamed labels without full project
+paths. Session cards reuse the labels; exact directory/thread routing is unchanged.
+A bounded selective read extracts only project name metadata from desktop UI state;
+unrelated top-level values are skipped. Names refresh when pickers reopen.
+See [project name source and fallbacks](project-display-names.md).
+
+Read-only local metadata projection matched the desktop project API's names for
+the configured allowlist, including Chinese aliases. Related picker, language,
+state and routing regressions passed. Full supported Windows verification passed
+**855 tests, zero failures/errors/skips**, Ruff, compile, build, archive integrity,
+offline installation and installed imports. Run:
+`.work-issues/verification-5372dcf3-1fd0-4d9b-841c-f0c2424b6c27/`. No native project was renamed, and the running a20 was not replaced.
+
 ## a20 candidate session language and public progress
 
 Reopening a known root refreshes its language and live status before linking to
