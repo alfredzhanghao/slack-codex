@@ -9,7 +9,7 @@ from .model import BridgeError
 
 SENSITIVE = {".aws", ".ssh", ".azure", ".gnupg", ".codex", "credentials", "credential",
              "credentials.json", "auth.json", "token.env", "tokens.json", "secrets.json",
-             "id_rsa", "id_ed25519", "login data", "cookies", "local state"}
+             "id_rsa", "id_ed25519", "login data", "cookies", "local state", "bridge-preferences.json"}
 SUPPORTED = {".txt", ".md", ".csv", ".tsv", ".json", ".yaml", ".yml", ".xml", ".log",
              ".py", ".js", ".ts", ".html", ".css", ".sql", ".pdf", ".docx", ".xlsx",
              ".pptx", ".png", ".jpg", ".jpeg", ".webp"}
@@ -20,7 +20,7 @@ def sensitive_path(path: Path) -> bool:
                or p.casefold().endswith((".env", ".pem", ".key", ".pfx", ".p12")) for p in path.parts)
 
 
-def local_file(cfg, cwd: str, value: str, *, max_bytes: int | None = None) -> Path:
+def local_file(cfg, cwd: str, value: str, *, max_bytes: int | None = None, output=False) -> Path:
     # Reject alternate data streams, UNC/device paths and drive-relative paths before resolve.
     if (not isinstance(value, str) or not value or not safe_text(value) or "\x00" in value
             or value.startswith(("\\\\", "//", "/")) or re.search(r":", value[2:])
@@ -35,7 +35,8 @@ def local_file(cfg, cwd: str, value: str, *, max_bytes: int | None = None) -> Pa
             raise BridgeError("credential_file_forbidden")
         if not path.is_file() or not any(path.is_relative_to(root) for root in cfg.projects):
             raise BridgeError("file_outside_allowlist")
-        if path.suffix.casefold() not in SUPPORTED:
+        from .artifacts import OUTPUT_SUPPORTED
+        if path.suffix.casefold() not in (OUTPUT_SUPPORTED if output else SUPPORTED):
             raise BridgeError("unsupported_file_type")
         limit = max_bytes if max_bytes is not None else (
             10 if path.suffix.casefold() in {".png", ".jpg", ".jpeg", ".webp"}

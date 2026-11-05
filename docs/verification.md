@@ -1,4 +1,35 @@
-# Current verification and acceptance — 2026-11-04
+# Current verification and acceptance — 2026-11-05
+
+
+## a19 candidate output delivery and bilingual preferences
+
+Newly completed Slack-tracked tasks automatically send documents/images below
+30,000,000 bytes by default. Videos, other supported outputs and files at/above
+the threshold receive a one-use direct confirmation. User preferences control
+language, automatic delivery, threshold and the outbound ceiling. Windows and
+Slack bridge UI share the same non-secret preference file; model replies bypass
+translation. Existing deployment configs and native processes are not modified.
+See [behavior and configuration](output-delivery-settings.md).
+
+Full supported Windows verification passed **819 tests, zero failures/errors/skips**,
+Ruff, compile, wheel/sdist checks, offline installation and installed imports.
+Run: `.work-issues/verification-f6808bee-c0bb-483d-8be5-89d8539b94fd/`.
+An earlier run had one existing windowless-shutdown process-exit identity race;
+814 other cases passed. No test or process-identity safeguard was weakened.
+Final focused checks additionally cover the last confirmation-card/path and UI
+keyboard-access changes. Packaging is rebuilt after these final edits.
+
+The 50 added cases cover threshold equality, video/manual confirmation, duplicate
+clicks, file/epoch/binding/root/user/action changes, ACK failure, policy/ceiling
+changes, unknown-upload non-replay, corrupt/atomic preferences, output-only video
+support and literal model replies. Existing completion tests now assert default
+automatic delivery once without a picker.
+
+Computer Use inspected an isolated synthetic Windows supervisor in English and
+Chinese, selected Chinese and clicked Save, then verified the persisted language
+and unchanged 30/100 MB values. The test adapter had no live worker/native start
+capability. No real Slack/model/file acceptance, deployment or native restart was
+performed. The running installation remains separate from this candidate.
 
 ## a18 candidate reusable navigation and command alias
 

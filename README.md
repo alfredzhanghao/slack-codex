@@ -12,7 +12,7 @@ native Codex chat gets exactly one Slack reply thread. Tasks, steering, approval
 attachments and returned files all stay inside that thread.
 
 > [!NOTE]
-> **Status: personal alpha (0.3.0a18).** It controls one verified Codex desktop/backend
+> **Status: personal alpha (0.3.0a19).** It controls one verified Codex desktop/backend
 > pair for a single Slack owner on Windows. It is not a multi-user or hosted service.
 
 ## A session in Slack
@@ -60,7 +60,8 @@ approvals, model/Skills settings, Compact and Fork. See
 - **Control**: Take control, Steer, Stop, approvals and structured answers.
 - **Settings**: native model and reasoning-effort selectors, paged Skills with exact-path details, Compact.
 - **Files in**: up to 5 images or documents per input (10 MiB each, 20 MiB total), staged for 10 minutes when sent alone.
-- **Files out**: natural-language retrieval of files produced in the same chat, with a chooser when several match.
+- **Files out**: automatically send documents/images below 30 MB; videos and files at or above the threshold get a direct confirmation button. Natural-language retrieval remains available.
+- **Bridge preferences**: configure delivery, size limits and English/中文 in the Windows supervisor; Windows and Slack UI share the setting. See [output delivery](docs/output-delivery-settings.md).
 - **Output**: concise Slack Markdown answers; status, operation details and account limits only on request.
 
 <details>

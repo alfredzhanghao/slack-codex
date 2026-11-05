@@ -42,6 +42,14 @@ path protections remain enforced.
 Retrieval resolves known outputs in the same session. Unique matches upload current
 bytes; ambiguity opens a chooser. It does not rerun the producing model task.
 
+Newly completed Slack-tracked tasks apply the [output delivery policy](output-delivery-settings.md)
+to explicit references only. Documents/images below the threshold auto-upload;
+videos and larger files require a one-use direct confirmation bound to the exact
+root, epoch, binding version, task and file identity. All sends use durable artifact
+operations and the existing one-attempt upload pipeline. A separate atomic,
+non-secret preference file controls policy and bridge-owned English/Chinese UI
+without changing pinned deployment files. Model replies bypass translation.
+
 ## Operations and presentation
 
 The on-demand supervisor uses the pinned operator, exact identities and actual TCP

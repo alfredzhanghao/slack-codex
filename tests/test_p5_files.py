@@ -203,26 +203,25 @@ async def test_interrupted_batch_retains_sent_and_unknown_file_receipts_without_
     assert len(attempts) == 2 and len(shared) == 1
 
 
-async def test_completion_lists_outputs_once_and_file_card_opens_exact_turn(setup):
+async def test_completion_sends_small_outputs_once_without_a_picker(setup):
     c, state, backend, store = setup
     await opened(c, state)
     op = await c.execute(state, await c.prepare(state, 'task', 'turn_start', 'Produce files', state.epoch, now_ms()))
     backend.current.terminals[backend.receipt.turn_id] = 'completed'
     backend.current.confirmed.add(backend.receipt.turn_id)
     slack = adapter(c, backend)
-    _, _, views = await selection_form(c, state, backend, slack)
+    paths, _, _ = await selection_form(c, state, backend, slack)
+    sent = enable_upload(slack)
+    slack.socket.acks.append('original-task-acked')
     await slack.tick(state)
     result = json.loads((await store.operation(op.op_id)).result_json)
     assert result['delivery'] == 'confirmed' and result['files_delivery'] == 'confirmed'
-    output = next((text, kwargs) for text, kwargs in slack.web.posts if text.startswith('Output files referenced'))
-    token = output[1]['blocks'][-1]['elements'][0]['value']
-    intent = slack.buttons.tokens[token]
-    assert intent.turn_id == backend.receipt.turn_id
-    _, _, opening = await slack.prepare_interaction(interaction(c.cfg, token, '200.000001'))
-    await opening
-    assert views[-1]['callback_id'] == 'bridge_artifact'
+    assert [item[0].path for item in sent] == paths
+    assert all(item[1] == state.binding.slack_root_ts for item in sent)
+    assert len(await store.uploads(state.binding.binding_id)) == 2
     before = len(slack.web.posts)
     await slack.tick(state)
+    assert len(sent) == 2
     assert len(slack.web.posts) == before and not any(i.kind == 'artifacts_open' for i in slack.buttons.tokens.values())
 
 

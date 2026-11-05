@@ -3,11 +3,12 @@
 import asyncio
 import json
 import logging
+import hashlib
 import re
 import secrets
 import time
 from collections import deque
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -24,7 +25,9 @@ from .controller import Controller, Prepared, State
 from .model import Binding, BridgeError, new_id, now_ms
 from .quota import quota_text
 from .inputs import parse_files, local_file
-from .artifacts import capture
+from .artifacts import capture, automatic, file_identity
+from . import preferences
+from .i18n import translate, blocks as translated_blocks
 from . import attachments
 from .skill_view import description as skill_description
 from .retrieval import is_retrieval, matching_outputs
@@ -119,6 +122,8 @@ class Web:
         self.cooldown: dict[str, float] = {}
 
     async def call(self, method, *, write=False, **kwargs):
+        if method in {"views.open", "views.update"} and "view" in kwargs:
+            kwargs["view"] = translated_blocks(kwargs["view"], preferences.language(self.cfg))
         delay = self.cooldown.get(method, 0) - time.monotonic()
         if delay > 0:
             raise BridgeError("slack_rate_limited", retry_after=delay)
@@ -157,7 +162,10 @@ class Web:
         except Exception:
             raise BridgeError("slack_write_unconfirmed" if write else "slack_unavailable", unknown=write) from None
 
-    async def post(self, text, *, root=None, blocks=None):
+    async def post(self, text, *, root=None, blocks=None, verbatim=False):
+        if not verbatim:
+            language = preferences.language(self.cfg)
+            text, blocks = translate(text, language), translated_blocks(blocks, language)
         body = {"channel": self.cfg.dm_id, "text": clean(text), "unfurl_links": False,
                 "unfurl_media": False, "parse": "none", "link_names": False}
         if root:
@@ -170,6 +178,8 @@ class Web:
         return value["ts"]
 
     async def update(self, root, text, blocks):
+        language = preferences.language(self.cfg)
+        text, blocks = translate(text, language), translated_blocks(blocks, language)
         value = await self.call("chat.update", write=True, channel=self.cfg.dm_id, ts=root,
                                 text=clean(text), blocks=blocks, parse="none", link_names=False)
         if value.get("channel") != self.cfg.dm_id or value.get("ts") != root:
@@ -765,6 +775,7 @@ class Slack:
 
     async def artifact_rows(self, state, turn_id="", *, include_retained=True, latest_completed=False):
         await self.artifact_guard(state, state.epoch, state.binding.binding_version)
+        prefs = preferences.read(self.cfg)
         if latest_completed and hasattr(self.backend, "latest_artifacts"):
             native = await self.backend.latest_artifacts(state.binding.codex_thread_id)
         else:
@@ -780,25 +791,61 @@ class Slack:
             seen.add(path.casefold())
             try:
                 actual = await asyncio.to_thread(local_file, self.cfg, state.binding.project_path, path,
-                                                 max_bytes=self.cfg.artifact_max_bytes)
+                                                 max_bytes=prefs.max_file_bytes, output=True)
                 if str(actual).casefold() != path.casefold() and str(actual).casefold() in seen:
                     continue
                 seen.add(str(actual).casefold())
-                rows.append({**row, "path": str(actual), "name": actual.name})
+                identity = await asyncio.to_thread(file_identity, actual)
+                rows.append({**row, "path": str(actual), "name": actual.name, "identity": identity})
             except BridgeError as error:
                 rows.append({"path": path, "unavailable": error.code})
             if len(rows) == 20:
                 break
         return rows
 
+    async def deliver_outputs(self, state, operation, turn_id):
+        """New task delivery only; the parent's durable attempting flag prevents replay."""
+        rows = await self.artifact_rows(state, turn_id, include_retained=False)
+        prefs = preferences.read(self.cfg)
+        epoch, version, root = state.epoch, state.binding.binding_version, state.binding.slack_root_ts
+        failures = []
+        for row in rows:
+            await self.artifact_guard(state, epoch, version)
+            if row.get("unavailable"):
+                await self.web.post(f"Output unavailable: {row['path']} ({row['unavailable']}).", root=root)
+                continue
+            data = {"path": row["path"], "expected_file": row["identity"]}
+            key = "output:" + operation.op_id + ":" + hashlib.sha256(row["path"].casefold().encode()).hexdigest()
+            if automatic(row["path"], row["identity"][0], prefs):
+                prepared = await self.controller.prepare(state, key, "artifact_upload", "", epoch,
+                                                         now_ms(), data={**data, "automatic": True})
+                await self.submit_artifact(state, prepared)
+                outcome = await self.controller.store.operation(prepared.operation.op_id)
+                if outcome.status != "accepted":
+                    failures.append(outcome)
+            else:
+                intent = Intent("output_confirm", state.binding.binding_id, epoch, turn_id=turn_id,
+                    binding_version=version, binding_root=root, operation_id=key, choice=json.dumps(data))
+                token = self.buttons.issue(intent)
+                body = f"Send output file to this Slack thread?\n{row['path']} ({row['identity'][0] / preferences.MB:.2f} MB)"
+                blocks = text_sections(body) + [{"type": "actions", "elements": [{"type": "button",
+                    "text": {"type": "plain_text", "text": "Send file"}, "action_id": "bridge_output_confirm",
+                    "value": token}]}]
+                intent.root = await self.web.post(body, root=root, blocks=blocks)
+        if failures:
+            unknown = any(op.status in {"sending", "unknown"} for op in failures)
+            raise BridgeError("artifact_output_delivery_incomplete", unknown=unknown)
+        return bool(rows)
+
     async def output_files_card(self, state, turn_id, *, rows=None):
         rows = rows if rows is not None else await self.artifact_rows(state, turn_id)
         if not rows:
             return False
-        body = "Output files referenced by this task (up to 20; current contents):\n"
+        language = preferences.language(self.cfg)
+        body = translate("Output files referenced by this task (up to 20; current contents):", language) + "\n"
         for row in rows:
             body += row["path"] + (" [unavailable: " + row["unavailable"] + "]" if row.get("unavailable") else "") + "\n"
-        body += "Choose one or more files, then Send to Slack. No task is rerun."
+        body += translate("Choose one or more files, then Send to Slack. No task is rerun.", language)
         intent = Intent("artifacts_open", state.binding.binding_id, state.epoch, turn_id=turn_id,
                         binding_version=state.binding.binding_version, binding_root=state.binding.slack_root_ts)
         token = self.buttons.issue(intent)
@@ -949,11 +996,19 @@ class Slack:
                 await notice("The file was not sent. Check !status before trying again.")
             return
         epoch = state.reservations[op.op_id][0]
+        artifact = None
+        data = json.loads(op.payload_json)
 
         async def guard():
             await self.artifact_guard(state, epoch, op.binding_version)
             if state.binding.codex_thread_id != op.target_thread_id or state.binding.slack_root_ts != root:
                 raise BridgeError("artifact_binding_changed")
+            prefs = preferences.read(self.cfg)
+            if artifact is not None:
+                if len(artifact.content) > prefs.max_file_bytes:
+                    raise BridgeError("file_too_large")
+                if data["data"].get("automatic") and not automatic(artifact.path, len(artifact.content), prefs):
+                    raise BridgeError("artifact_automatic_policy_changed")
             if op.supersedes_op_id:
                 await self.controller.replacement_source(state, op.supersedes_op_id,
                     json.loads(op.payload_json)["supersedes_fingerprint"])
@@ -974,8 +1029,20 @@ class Slack:
                 raise BridgeError("artifact_transfer_busy")
             async with self.upload_lock:
                 await guard()
-                data = json.loads(op.payload_json)
-                artifact = await asyncio.to_thread(capture, self.cfg, state.binding.project_path, data["data"]["path"])
+                prefs = preferences.read(self.cfg)
+                path = data["data"]["path"]
+                expected = data["data"].get("expected_file")
+                if expected is not None:
+                    actual = await asyncio.to_thread(local_file, self.cfg, state.binding.project_path, path,
+                                                     max_bytes=prefs.max_file_bytes, output=True)
+                    if await asyncio.to_thread(file_identity, actual) != expected:
+                        raise BridgeError("artifact_changed_since_offer")
+                artifact = await asyncio.to_thread(capture, replace(self.cfg, artifact_max_bytes=prefs.max_file_bytes),
+                                                  state.binding.project_path, path)
+                if expected is not None and await asyncio.to_thread(file_identity, artifact.path) != expected:
+                    raise BridgeError("artifact_changed_since_offer")
+                if data["data"].get("automatic") and not automatic(artifact.path, len(artifact.content), preferences.read(self.cfg)):
+                    raise BridgeError("artifact_automatic_policy_changed")
                 pending = await store.uploads(state.binding.binding_id, pending=True)
                 if any(other.op_id != op.op_id and json.loads(other.payload_json).get("data", {}).get("path", "").casefold()
                        == str(artifact.path).casefold() for other in pending):
@@ -1482,6 +1549,9 @@ class Slack:
             return None, None, None
         navigation_kind = None if is_modal else NAVIGATION_ACTIONS.get(payload["actions"][0].get("action_id"))
         stored = self.buttons.tokens.get(token)
+        if stored and stored.kind == "output_confirm" and (is_modal or
+                payload["actions"][0].get("action_id") != "bridge_output_confirm"):
+            return None, None, None
         if stored and stored.kind in NAVIGATION_KINDS and not navigation_kind:
             return None, None, None
         intent = (self.buttons.navigation(token, navigation_kind, payload.get("container", {}).get("message_ts"))
@@ -1527,6 +1597,14 @@ class Slack:
                 after = self.tasks(**json.loads(intent.choice))
             return None, None, after
         state = self.controller.states.get(intent.binding_id)
+        if intent.kind == "output_confirm":
+            if (not state or state.root_fault or state.binding.disabled or intent.epoch != state.epoch
+                    or intent.binding_version != state.binding.binding_version
+                    or intent.binding_root != state.binding.slack_root_ts):
+                return None, None, None
+            prepared = await self.controller.prepare(state, intent.operation_id, "artifact_upload", "",
+                intent.epoch, now_ms(), data=json.loads(intent.choice))
+            return state, prepared, None
         if intent.kind in {"skills_page", "skill_use", "skill_details"}:
             if (is_modal or not state or intent.epoch != state.epoch
                     or intent.binding_version != state.binding.binding_version
@@ -2094,7 +2172,8 @@ class Slack:
                     elements[-1]["style"] = "danger"
         blocks = text_sections(text)
         blocks.append({"type": "actions", "elements": elements})
-        return text, blocks
+        language = preferences.language(self.cfg)
+        return translate(text, language), translated_blocks(blocks, language)
 
     async def render(self, state, *, force=False):
         if not self.ready or state.root_fault or not TS.fullmatch(state.binding.slack_root_ts):
@@ -2143,7 +2222,7 @@ class Slack:
                         blocks = (text_sections(f"Task {status}.") if status != "completed" else [])
                         blocks += [{"type": "markdown", "text": chunk}]
                         await self.web.post(chunk,
-                                            root=state.binding.slack_root_ts, blocks=blocks)
+                                            root=state.binding.slack_root_ts, blocks=blocks, verbatim=True)
                 result["delivery"] = "confirmed"
             except asyncio.CancelledError:
                 result["delivery"] = "unknown_no_automatic_retry"
@@ -2163,7 +2242,7 @@ class Slack:
                 result["files_delivery"] = "attempting"
                 await self.controller.store.result(op, result)
                 try:
-                    found = await self.output_files_card(state, tid)
+                    found = await self.deliver_outputs(state, op, tid)
                     result["files_delivery"] = "confirmed" if found else "no_references"
                 except asyncio.CancelledError:
                     result["files_delivery"] = "unknown_no_automatic_retry"

@@ -37,8 +37,11 @@ class Config:
     environment_id: str | None = None
     message_apps: tuple[str, ...] = ()
     update_budget: int = 30
-    artifact_max_bytes: int = 10 * 1024**2
+    artifact_max_bytes: int = 100_000_000
     native_state_db: Path | None = None
+    language: str = "en"
+    artifact_auto_send: bool = True
+    artifact_auto_send_max_bytes: int = 30_000_000
 
     def allows(self, cwd: str) -> bool:
         try:
@@ -88,8 +91,11 @@ def load(path: Path) -> Config:
             environment_id=desktop.get("environment_id"),
             message_apps=tuple(slack.get("message_app_allowlist", [])),
             update_budget=int(obj.get("status", {}).get("update_budget_per_minute", 30)),
-            artifact_max_bytes=int(obj.get("artifacts", {}).get("max_file_bytes", 10 * 1024**2)),
+            artifact_max_bytes=int(obj.get("artifacts", {}).get("max_file_bytes", 100_000_000)),
             native_state_db=Path(desktop["state_db"]) if desktop.get("state_db") else None,
+            language=obj.get("ui", {}).get("language", "en"),
+            artifact_auto_send=obj.get("artifacts", {}).get("auto_send", True),
+            artifact_auto_send_max_bytes=obj.get("artifacts", {}).get("auto_send_max_bytes", 30_000_000),
         )
         for val, prefix in [(cfg.app_id, "A"), (cfg.team_id, "T"), (cfg.user_id, "U"), (cfg.dm_id, "D")]:
             if not re.fullmatch(prefix + r"[A-Z0-9]+", val):
@@ -109,8 +115,12 @@ def load(path: Path) -> Config:
             raise BridgeError("invalid_message_app_allowlist")
         if not 1 <= cfg.update_budget <= 120:
             raise BridgeError("invalid_status_update_budget")
-        if not 1 <= cfg.artifact_max_bytes <= 20 * 1024**2:
+        if not 1 <= cfg.artifact_max_bytes <= 100_000_000:
             raise BridgeError("invalid_artifact_size_limit")
+        if (cfg.language not in {"en", "zh-CN"} or type(cfg.artifact_auto_send) is not bool
+                or type(cfg.artifact_auto_send_max_bytes) is not int
+                or not 1 <= cfg.artifact_auto_send_max_bytes <= 100_000_000):
+            raise BridgeError("invalid_bridge_preferences")
         if not all(p.is_absolute() and p.is_file() for p in (cfg.desktop_exe, cfg.backend_exe)):
             raise BridgeError("configured_executable_not_found")
         if cfg.native_state_db is not None and (not cfg.native_state_db.is_absolute() or
