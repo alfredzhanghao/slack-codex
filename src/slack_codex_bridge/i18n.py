@@ -2,6 +2,10 @@
 
 import re
 
+
+class Literal(str):
+    """A presentation string already localized or containing literal native text."""
+
 ZH = {
     "Start": "启动", "Stop": "停止", "Exit": "退出", "Restore connection": "恢复连接",
     "Refresh instances": "刷新实例", "Connect selected": "连接所选实例", "Settings": "设置",
@@ -108,6 +112,9 @@ ZH = {
     "Model": "模型", "Previous": "上一页", "Next": "下一页", "Task": "任务",
     "Reply in this thread to continue this session. Settings contains skills and file retrieval.": "回复本线程即可继续会话，设置中包含技能和文件取回。",
     "For this connection, use Codex desktop for Steer, approvals and model/Skills settings.": "此连接的追加指令、审批和模型/技能设置请在 Codex 桌面操作。",
+    "Progress:": "进展：",
+    "Status: syncing/offline | unknown": "状态：同步中/离线 | 状态未知",
+    "No fresh native status. Open this chat in Codex desktop, then Refresh.": "暂无新的原生状态。请在 Codex 桌面打开此会话，再点击刷新。",
     "Context compaction pending; new tasks are protected.": "上下文正在压缩，新任务暂受保护。",
     "Unknown / semantic mismatch: protected; inspect operation receipts.": "存在未知结果或语义不匹配，已启用保护，请核查操作回执。",
     "Account limits: unavailable (no windows inferred).": "账户额度：暂不可用（未推测额度窗口）。",
@@ -120,8 +127,9 @@ ZH = {
 # Anchored bridge templates preserve all variable values, including native names and paths.
 TEMPLATES = [
     (r"Model: (.+?) \| Effort: (.+)", "模型：{0} | 推理强度：{1}"),
-    (r"Status: (online|syncing/offline) \| (working|idle)", "状态：{0} | {1}"),
-    (r"Input: (slack|desktop) \(GUI is not locked\) \| Approval pending: (yes|no)", "输入：{0}（桌面未锁定） | 待审批：{1}"),
+    (r"Status: (online|syncing/offline) \| (working|idle|unknown|confirming completion|waiting for approval|compacting)", "状态：{0} | {1}"),
+    (r"Input: (slack|desktop|suspended) \(GUI is not locked\) \| Approval pending: (yes|no|unknown)", "输入：{0}（桌面未锁定） | 待审批：{1}"),
+    (r"Chat history ready\. Chat: (.+)\. Live status unavailable; open this chat in Codex desktop, then Refresh\. No task was submitted\.", "会话历史记录已就绪。会话：{0}。原生状态暂不可用，请在 Codex 桌面打开此会话后刷新。未提交任务。"),
     (r"Desktop (\d+) \| Existing desktop IPC — loaded chats; native processes stay running", "桌面 {0} | 现有桌面 IPC — 已加载会话，原生进程保持运行"),
     (r"Desktop (\d+) \| backend (\d+), port (\d+) — ready to confirm", "桌面 {0} | 后端 {1}，端口 {2} — 等待确认"),
     (r"Skills — (\d+) matches\. Page (\d+)\. Filter: !skills TEXT\.", "技能 — 匹配 {0} 项，第 {1} 页。筛选：!skills TEXT。"),
@@ -160,11 +168,12 @@ STATES = {"running": "运行中", "stopped": "已停止", "connecting": "连接�
     "choose an existing instance": "请选择现有实例", "no running desktop detected": "未发现运行中的桌面",
     "completed": "已完成", "failed": "失败", "interrupted": "已中断", "unconfirmed": "未确认",
     "online": "在线", "syncing/offline": "同步中/离线", "working": "工作中", "idle": "空闲",
-    "desktop": "桌面", "slack": "Slack", "yes": "是", "no": "否"}
+    "desktop": "桌面", "slack": "Slack", "yes": "是", "no": "否",
+    "confirming completion": "正在确认完成", "waiting for approval": "等待审批", "compacting": "压缩上下文中"}
 
 
 def translate(text, language):
-    if language != "zh-CN" or not isinstance(text, str):
+    if language != "zh-CN" or not isinstance(text, str) or isinstance(text, Literal):
         return text
     if text in ZH:
         return ZH[text]

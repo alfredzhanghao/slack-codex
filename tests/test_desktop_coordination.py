@@ -158,6 +158,40 @@ async def test_real_framing_reads_existing_state_without_resume_or_task(peer):
         "initialize", "thread-owner-discovery", "thread-stream-following-changed"}
 
 
+async def test_ipc_snapshot_includes_only_current_public_commentary(peer):
+    backend, current, _, _ = peer
+    current['threadRuntimeStatus'] = {'type': 'active', 'activeFlags': []}
+    turns = current['turnHistory']['history']['entitiesByKey']
+    turns['turn-2'] = {'turnId': 'turn-2', 'turnStartedAtMs': 2, 'status': 'inProgress', 'items': [
+        {'id': 'thought', 'type': 'reasoning', 'content': ['never display'], 'summary': ['never display']},
+        {'id': 'comment-1', 'type': 'agentMessage', 'phase': 'commentary', 'text': 'Earlier update'},
+        {'id': 'command', 'type': 'commandExecution', 'command': 'never display', 'aggregatedOutput': 'never display'},
+        {'id': 'comment-2', 'type': 'agentMessage', 'phase': 'commentary', 'text': 'Latest public update'},
+        {'id': 'final', 'type': 'agentMessage', 'phase': 'final_answer', 'text': 'Final must not become progress'}]}
+    snapshot = await backend.snapshot('chat-1')
+    assert snapshot.active_turn == 'turn-2' and snapshot.progress == 'Latest public update'
+    turns['turn-2']['status'] = 'completed'
+    current['threadRuntimeStatus'] = {'type': 'idle', 'activeFlags': []}
+    backend.rpc.stamps.clear()
+    assert not (await backend.snapshot('chat-1')).progress
+
+
+async def test_ipc_progress_requires_fresh_current_turn_and_discards_unsupported_patch(peer):
+    backend, current, _, _ = peer
+    current['threadRuntimeStatus'] = {'type': 'active', 'activeFlags': []}
+    row = current['turnHistory']['history']['entitiesByKey']['turn-1']
+    row.update(status='inProgress', items=[{'type': 'agentMessage', 'phase': 'commentary', 'text': 'Public update'}])
+    assert (await backend.snapshot('chat-1')).progress == 'Public update'
+    assert backend.rpc.public_progress('chat-1', 'other-turn') == ''
+    assert backend.rpc.public_progress('other-chat', 'turn-1') == ''
+    backend.rpc.stamps['chat-1'] -= 6
+    assert backend.rpc.public_progress('chat-1', 'turn-1') == ''
+    backend.rpc.broadcast({'type': 'broadcast', 'method': 'thread-stream-state-changed', 'version': 11,
+        'sourceClientId': 'owner', 'params': {'hostId': 'local', 'conversationId': 'chat-1',
+        'change': {'type': 'patch', 'revision': 2}}})
+    assert backend.rpc.public_progress('chat-1', 'turn-1') == ''
+
+
 async def test_terminal_readback_requires_time_separated_fresh_snapshots(peer, monkeypatch):
     backend, _, _, _ = peer
     a = await backend.snapshot("chat-1")

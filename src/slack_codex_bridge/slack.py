@@ -27,7 +27,7 @@ from .quota import quota_text
 from .inputs import parse_files, local_file
 from .artifacts import capture, automatic, file_identity
 from . import preferences
-from .i18n import translate, blocks as translated_blocks
+from .i18n import Literal, translate, blocks as translated_blocks
 from . import attachments
 from .skill_view import description as skill_description
 from .retrieval import is_retrieval, matching_outputs
@@ -41,6 +41,9 @@ TURN = re.compile(r"[0-9a-fA-F-]{36}")
 NAVIGATION_ACTIONS = {"bridge_bind": "bind", "bridge_project": "project", "bridge_projects": "projects",
                       "bridge_projects_next": "projects_page", "bridge_tasks_page": "tasks_page"}
 NAVIGATION_KINDS = frozenset(NAVIGATION_ACTIONS.values())
+CHAT_STATE_UNAVAILABLE = {"desktop_ipc_open_chat_in_desktop", "thread_outside_allowlist_or_unavailable",
+    "desktop_ipc_snapshot_unavailable", "desktop_ipc_owner_unavailable", "backend_thread_not_loaded",
+    "persisted_thread_metadata_unavailable", "thread_not_trusted"}
 NAVIGATION_ERRORS = {
     "backend_thread_active_writer", "backend_rejected", "backend_read_failed", "backend_disconnected",
     "backend_unavailable", "backend_invalid_snapshot", "backend_thread_not_loaded", "thread_not_trusted",
@@ -498,6 +501,10 @@ class Slack:
             try:
                 await self.tick(state)
             except BridgeError as error:
+                if error.code in CHAT_STATE_UNAVAILABLE:
+                    self.last_fault = error.code
+                    await self.render(state)
+                    return
                 if error.code in ROOT_ERRORS and not await self.check_root(state):
                     self.last_fault = "binding_root_unavailable"
                     return
@@ -2060,6 +2067,15 @@ class Slack:
                 raise BridgeError("chat_connection_changed")
 
         guard()
+        try:
+            await self.refresh_view(state)
+        except BridgeError as error:
+            if error.code not in CHAT_STATE_UNAVAILABLE:
+                raise
+        guard()
+        # A language change or restart must refresh a reused root before navigating to it.
+        await self.render(state, force=True)
+        guard()
         value = await self.web.call("chat.getPermalink", channel=self.cfg.dm_id, message_ts=root)
         url = value.get("permalink", "")
         parts = urlsplit(url)
@@ -2074,7 +2090,9 @@ class Slack:
             raise BridgeError("chat_entry_link_unverified")
         guard()
         url = parts._replace(query="").geturl() + f"?thread_ts={root}&cid={self.cfg.dm_id}"
-        text = f"Chat controls ready. Chat: {binding.codex_thread_id}. Open this Slack thread to continue. No task was submitted."
+        text = (f"Chat controls ready. Chat: {binding.codex_thread_id}. Open this Slack thread to continue. No task was submitted."
+                if self.controller._fresh(state) and not state.syncing else
+                f"Chat history ready. Chat: {binding.codex_thread_id}. Live status unavailable; open this chat in Codex desktop, then Refresh. No task was submitted.")
         await self.web.post(text, blocks=text_sections(text) + [{"type": "actions", "elements": [{
             "type": "button", "action_id": "bridge_chat_thread", "text": {"type": "plain_text", "text": "Enter chat thread"},
             "url": url}]}])
@@ -2126,7 +2144,11 @@ class Slack:
 
     def card(self, state):
         s = state.snapshot
-        pending = "yes" if s and s.approval else "no"
+        online = self.ready and self.controller.healthy and self.controller._fresh(state) and not state.syncing
+        pending = ("yes" if s.approval else "no") if online else "unknown"
+        activity = ("compacting" if s.compacting or state.compaction_pending else
+                    "waiting for approval" if s.approval else "working" if not s.idle else
+                    "confirming completion" if state.active_turn else "idle") if online else "unknown"
         context = s.context if s else {}
         if context and context.get("generation") == s.generation:
             headline = (f"Context remaining: {100 * context['remaining'] / context['window']:.1f}% "
@@ -2137,8 +2159,7 @@ class Slack:
         text = (headline + "\n"
                 f"Model: {s.model if s and s.model else 'unconfirmed'} | Effort: {s.effort if s and s.effort else 'unconfirmed'}\n"
                 f"{Path(state.binding.project_path).name} / {title[:140]}\n"
-                f"Status: {'online' if self.ready and s and s.trusted else 'syncing/offline'} | "
-                f"{'working' if s and s.active_turn or state.active_turn else 'idle'}\n"
+                f"Status: {'online' if online else 'syncing/offline'} | {activity}\n"
                 f"Input: {state.mode} (GUI is not locked) | Approval pending: {pending}\n"
                 "Reply in this thread to continue this session. Settings contains skills and file retrieval.")
         if state.compaction_pending or s and s.compacting:
@@ -2152,15 +2173,15 @@ class Slack:
             text += "\nQuery blocking operations: " + ", ".join("!op " + opid for opid in state.blocker_ids[:3])
         if getattr(self.backend, "desktop_only_controls", ()):
             text += "\nFor this connection, use Codex desktop for Steer, approvals and model/Skills settings."
-        if state.binding.binding_id in self.progress:
-            text += "\nProgress: " + self.progress[state.binding.binding_id][-600:]
+        if not online:
+            text += "\nNo fresh native status. Open this chat in Codex desktop, then Refresh."
         elements = []
         for kind, label in [("desktop", "Return to desktop") if state.mode == "slack" else ("slack", "Take control"),
                             ("entry", "Enter chat thread"), ("settings", "Settings"), ("status", "Refresh")]:
             token = self.buttons.issue(Intent(kind, state.binding.binding_id, state.epoch, root=state.binding.slack_root_ts))
             elements.append({"type": "button", "text": {"type": "plain_text", "text": label},
                              "action_id": "bridge_" + kind, "value": token})
-        if s and s.active_turn:
+        if online and s.active_turn:
             for kind, label in [("steer", "Steer"), ("interrupt", "Stop")]:
                 if kind in getattr(self.backend, "desktop_only_controls", ()):
                     continue
@@ -2173,7 +2194,28 @@ class Slack:
         blocks = text_sections(text)
         blocks.append({"type": "actions", "elements": elements})
         language = preferences.language(self.cfg)
-        return translate(text, language), translated_blocks(blocks, language)
+        text, blocks = translate(text, language), translated_blocks(blocks, language)
+        progress = (s.progress or self.progress.get(state.binding.binding_id, "")) if online and not s.idle else ""
+        if progress:
+            progress_text = translate("Progress:", language) + " " + progress[-600:]
+            text += "\n" + progress_text
+            progress_blocks = text_sections(progress_text)
+            for block in progress_blocks:
+                block["text"]["text"] = Literal(block["text"]["text"])
+            blocks[-1:-1] = progress_blocks
+        return Literal(text), blocks
+
+    async def refresh_view(self, state):
+        try:
+            await self.controller.refresh(state)
+        except BridgeError as error:
+            if error.code in CHAT_STATE_UNAVAILABLE:
+                if not state.syncing:
+                    self.controller._suspend(state)
+                    self.buttons.invalidate(state.binding.binding_id)
+                state.snapshot = None
+                self.progress.pop(state.binding.binding_id, None)
+            raise
 
     async def render(self, state, *, force=False):
         if not self.ready or state.root_fault or not TS.fullmatch(state.binding.slack_root_ts):
@@ -2199,7 +2241,7 @@ class Slack:
 
     async def tick(self, state):
         await self.refresh_limits()
-        await self.controller.refresh(state)
+        await self.refresh_view(state)
         if state.root_fault:
             return
         await self.render_requests(state)

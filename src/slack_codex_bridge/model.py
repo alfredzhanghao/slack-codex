@@ -48,6 +48,7 @@ class Snapshot:
     confirmed: set[str] = field(default_factory=set)
     known_turns: set[str] = field(default_factory=set)
     context: dict = field(default_factory=dict)
+    progress: str = ""
 
 
 @dataclass(frozen=True)

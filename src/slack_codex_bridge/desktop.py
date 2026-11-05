@@ -451,7 +451,9 @@ class Desktop:
                         effort=None if (thread_id, active) in self.rerouted else resumed.get("reasoningEffort"),
                         generation=self.rpc.generation, terminals=terminals, confirmed=confirmed,
                         known_turns={x["id"] for x in rows if x.get("id")},
-                        context=dict(self.context_usage.get(thread_id, {})))
+                        context=dict(self.context_usage.get(thread_id, {})),
+                        progress=self.rpc.public_progress(thread_id, active)
+                        if hasattr(self.rpc, "public_progress") else "")
 
     async def send(self, action: Action) -> Receipt:
         if action.kind == "turn_start":

@@ -67,3 +67,13 @@ also use its existing coordination pipe: verify the pipe server's exact desktop
 identity and follow the chat's owner instead of launching another app-server.
 This route has an explicit capability boundary; unsupported private transports
 remain non-connectable. See [instance selection](adaptive-instance-selection.md).
+
+
+## Session presentation freshness
+
+Entry navigation refreshes a reused root under the current language before
+posting the thread link. Unavailable per-chat state renders unknown instead of
+retaining an old online/idle card. Fresh native active status determines working
+presentation, while exact-turn controls and terminal corroboration stay separate.
+IPC snapshots expose only current-turn public commentary as literal progress;
+reasoning/tool output and older turns are excluded. See [session display](session-display.md).

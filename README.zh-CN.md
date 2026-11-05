@@ -11,7 +11,7 @@ Slack Codex Bridge 是一个运行在个人 Windows 电脑上的桥接程序，�
 审批、附件和取回的文件都留在这个消息列里。
 
 > [!NOTE]
-> **状态：个人 alpha 版（0.3.0a19）。** 只为单个 Slack 所有者控制一对已验证的 Codex
+> **状态：个人 alpha 版（0.3.0a20）。** 只为单个 Slack 所有者控制一对已验证的 Codex
 > 桌面端/后端，仅支持 Windows，不是多用户或托管服务。
 
 ## 在 Slack 里的一次会话

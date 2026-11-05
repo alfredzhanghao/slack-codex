@@ -360,6 +360,24 @@ class CoordinationRPC:
                                "items": row.get("items", []), "error": row.get("error")})
         return result
 
+    def public_progress(self, thread_id, turn_id):
+        """Presentation only, from the exact current owner snapshot; no events synthesized."""
+        self.guard()
+        state = self.states.get(thread_id)
+        if (not turn_id or not state or thread_id not in self.owners
+                or (state.get("threadRuntimeStatus") or {}).get("type") != "active"
+                or time.monotonic() - self.stamps.get(thread_id, -1e9) > 5):
+            return ""
+        turn = next((row for row in self.turns(state)
+                     if row["id"] == turn_id and row["status"] == "inProgress"), None)
+        if turn:
+            for item in reversed(turn["items"]):
+                if (isinstance(item, dict) and item.get("type") == "agentMessage"
+                        and item.get("phase") == "commentary" and isinstance(item.get("text"), str)
+                        and item["text"].strip()):
+                    return item["text"][-1000:]
+        return ""
+
     async def call(self, method, params, *, write=False):
         if not self.connected:
             raise BridgeError("backend_unavailable")

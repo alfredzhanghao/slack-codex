@@ -1,6 +1,24 @@
 # Current verification and acceptance — 2026-11-05
 
 
+## a20 candidate session language and public progress
+
+Reopening a known root refreshes its language and live status before linking to
+Slack history. Missing native state shows unknown instead of stale online/idle.
+The pinned IPC adapter exposes the latest public commentary from the exact active
+turn; progress text is literal and no start/completion events are synthesized.
+Status presentation does not release input/unknown protection. See
+[session display](session-display.md).
+
+Targeted regressions reproduced the old failure before the fix; 216 related cases
+and 59 focused IPC/session cases passed after repair. Full supported Windows
+verification passed **831 tests, zero failures/errors/skips**, Ruff, compilation,
+build, archive integrity, offline installation and installed imports. Run:
+`.work-issues/verification-9895004a-e06a-4357-bae7-2b1007851387/`. Read-only native schema inspection confirmed the
+current desktop supplies active status, in-progress turn IDs and public commentary.
+No live Slack task, model task, upload or runtime replacement was performed for a20.
+The deployed a19 stays pinned pending separately authorized replacement.
+
 ## a19 candidate output delivery and bilingual preferences
 
 Newly completed Slack-tracked tasks automatically send documents/images below

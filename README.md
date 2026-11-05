@@ -12,7 +12,7 @@ native Codex chat gets exactly one Slack reply thread. Tasks, steering, approval
 attachments and returned files all stay inside that thread.
 
 > [!NOTE]
-> **Status: personal alpha (0.3.0a19).** It controls one verified Codex desktop/backend
+> **Status: personal alpha (0.3.0a20).** It controls one verified Codex desktop/backend
 > pair for a single Slack owner on Windows. It is not a multi-user or hosted service.
 
 ## A session in Slack
