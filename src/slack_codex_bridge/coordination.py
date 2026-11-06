@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlparse
 
 from .model import BridgeError, new_id
+from .thread_names import names as thread_names
 
 
 PIPE = r"\\.\pipe\codex-ipc"
@@ -58,6 +59,22 @@ def native_path(value):
     if value.startswith("\\\\?\\") and len(value) > 6 and value[5:7] == ":\\":
         return value[4:]
     return value
+
+
+def start_input(params):
+    """Adapt native desktop text rendering without mutating caller-owned input."""
+    request = copy.deepcopy(params)
+    inputs = request.get("input")
+    if not isinstance(inputs, list) or not inputs or not all(isinstance(item, dict) for item in inputs):
+        raise BridgeError("desktop_ipc_invalid_input")
+    for item in inputs:
+        if item.get("type") != "text":
+            continue
+        elements = item.setdefault("text_elements", [])
+        if (not isinstance(item.get("text"), str) or not isinstance(elements, list)
+                or not all(isinstance(element, dict) for element in elements)):
+            raise BridgeError("desktop_ipc_invalid_input")
+    return request
 
 
 async def open_pipe():
@@ -117,15 +134,17 @@ def catalog(cfg, thread_id=None, project=None, sources=None):
     try:
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)) as db:
             db.execute("PRAGMA query_only = ON")
-            rows = db.execute("SELECT id,title,cwd FROM threads WHERE " + where +
+            rows = db.execute("SELECT id,title,cwd,updated_at FROM threads WHERE " + where +
                               " ORDER BY updated_at DESC,id", args).fetchall()
-        return [{"id": tid, "name": title, "cwd": native_path(cwd)}
-                for tid, title, cwd in rows if cfg.allows(native_path(cwd))]
+        labels = thread_names(cfg)
+        return [{"id": tid, "name": labels.get(tid) or title, "cwd": native_path(cwd), "updatedAt": updated}
+                for tid, title, cwd, updated in rows if cfg.allows(native_path(cwd))]
     except (sqlite3.Error, OSError, ValueError):
         raise BridgeError("desktop_ipc_catalog_unavailable") from None
 
 
 class CoordinationRPC:
+    rate_limits_supported = False
     desktop_only_controls = frozenset({"steer", "approval", "model_picker", "effort_picker",
                                        "skills", "compact", "fork"})
 
@@ -433,7 +452,12 @@ class CoordinationRPC:
         runtime = copy.deepcopy(state.get("threadRuntimeStatus") or {})
         if state.get("requests"):
             runtime["activeFlags"] = list(set(runtime.get("activeFlags", [])) | {"waitingOnApproval"})
-        thread = {"id": tid, "name": state.get("title"), "cwd": state["cwd"],
+        metadata = await asyncio.to_thread(catalog, self.cfg, tid)
+        if len(metadata) != 1:
+            raise BridgeError("thread_outside_allowlist_or_unavailable")
+        known = metadata[0]
+        thread = {"id": tid, "name": state.get("title") or known.get("name"), "cwd": state["cwd"],
+                  "updatedAt": known.get("updatedAt"),
                   "status": runtime, "environments": state.get("environments", [])}
         if method == "thread/read":
             return {"thread": thread}
@@ -467,7 +491,7 @@ class CoordinationRPC:
                     (state.get("threadRuntimeStatus") or {}).get("type") != "idle" or state.get("requests")):
                 raise BridgeError("desktop_ipc_chat_not_idle")
             result = await self.request("thread-follower-start-turn",
-                {"conversationId": tid, "turnStart": {"request": params,
+                {"conversationId": tid, "turnStart": {"request": start_input(params),
                  "context": {"inheritThreadSettings": True}}}, version=2, target=owner, write=True)
             value = result.get("result", {}).get("result")
             if not isinstance(value, dict) or not value.get("turn", {}).get("id"):

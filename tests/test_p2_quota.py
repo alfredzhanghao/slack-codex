@@ -1,14 +1,44 @@
 import time
 from types import SimpleNamespace
+import pytest
 
 from slack_codex_bridge.desktop import Desktop
 from slack_codex_bridge.quota import display_time, quota_text
+from slack_codex_bridge.model import BridgeError
+from test_slack import adapter
 
 
 def backend(cfg):
     d = Desktop(cfg, "ws://127.0.0.1:1")
     d.rpc = SimpleNamespace(generation=1, connected=True)
     return d
+
+
+async def test_ordinary_status_is_quiet_and_explicit_quota_explains_missing_capability(setup):
+    c,state,native,_=setup
+    native.rate_limits_supported=False
+    async def unsupported(**_):pytest.fail('unsupported quota method must not be called')
+    native.refresh_limits=unsupported
+    slack=adapter(c,native)
+    slack.last_fault='navigation_diagnostic'
+    for _ in range(3):
+        await slack.command(state,'!status',state.epoch)
+    assert not slack.web.posts and slack.last_fault=='navigation_diagnostic'
+    await slack.command(state,'!quota',state.epoch)
+    assert 'does not provide account limits' in slack.web.posts[-1][0]
+    assert not native.sent
+
+
+async def test_quota_transport_failure_keeps_unrelated_diagnostic(setup):
+    c,state,native,_=setup
+    async def failed(**_):raise BridgeError('slack_unavailable')
+    native.refresh_limits=failed
+    slack=adapter(c,native)
+    slack.last_fault='chat_entry_link_unverified'
+    await slack.refresh_limits(force=True)
+    assert slack.last_fault=='chat_entry_link_unverified' and slack.quota_fault=='slack_unavailable'
+    await slack.command(state,'!quota',state.epoch)
+    assert slack.web.posts[-1][0]=='Account limits are temporarily unavailable.'
 
 
 def test_distinct_buckets_actual_windows_missing_values_and_singapore_time(cfg):

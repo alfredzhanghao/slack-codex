@@ -7,6 +7,17 @@ class Literal(str):
     """A presentation string already localized or containing literal native text."""
 
 ZH = {
+    "Steer current task": "引导当前任务",
+    "This chat is working. Use Codex desktop to guide the active task; Slack Steer cannot safely target this turn.": "当前会话正在执行任务。请在 Codex 桌面端追加引导，当前连接无法保证 Slack 引导送达原轮次。",
+    "This connection does not provide account limits. View them in Codex desktop.": "当前连接不提供账户额度，请在 Codex 桌面端查看。",
+    "Account limits are temporarily unavailable.": "账户额度暂时无法获取。",
+    "Activity unavailable; projects are listed by path order. Refresh to retry.": "暂时无法获取活跃时间，项目按固定目录顺序排列，请刷新重试。",
+    "Click Take control on the session card before sending attachments and instructions. The shared files remain in Slack; no task was started.": "请先在会话卡片点击“接管输入”，再发送附件和指令。已分享的文件仍保留在 Slack，没有启动任务。",
+    "Session thread ready. After taking control, write your task here. No task started.": "会话线程已就绪。接管输入后，在这里发送任务。本次没有启动任务。",
+    "Open the session card's replies to continue. Web fallback may open a browser.": "点击会话卡片的回复数进入线程。备用网页入口可能打开浏览器。",
+    "Open thread (web fallback)": "打开线程（备用网页入口）",
+    "Live status unavailable; open this chat in Codex desktop, then Refresh.": "历史记录可查看；实时状态暂不可用，请在 Codex 桌面端打开此会话后刷新。",
+    "Steer in Slack is unavailable: this connection cannot guarantee the original active turn. Use Codex desktop.": "当前连接无法保证引导送达原执行轮次，暂不支持在 Slack 引导，请使用 Codex 桌面端。",
     "Start": "启动", "Stop": "停止", "Exit": "退出", "Restore connection": "恢复连接",
     "Refresh instances": "刷新实例", "Connect selected": "连接所选实例", "Settings": "设置",
     "Slack Codex Bridge Supervisor": "Slack Codex 桥接管理程序",
@@ -75,7 +86,7 @@ ZH = {
     "Context remaining: unknown (waiting for native usage telemetry).": "剩余上下文：未知（等待原生用量遥测）。",
     "Send tasks and retrieve files in this thread. For this connection, use the Codex desktop for Steer, approvals, model/Skills settings, Compact and Fork.": "在本线程发送任务和取回文件。此连接的追加指令、审批、模型/技能设置、压缩和分叉请在 Codex 桌面操作。",
     "Session settings. Write ordinary tasks directly in this reply thread. File retrieval: !artifacts or ask to send a known output file. Compact and Fork are explicit operations; input ownership and approvals still apply.": "会话设置。普通任务直接回复本线程；取回文件可用 !artifacts 或直接要求发送已有输出文件。压缩和分叉需要显式操作，输入权限和审批仍然生效。",
-    "Select a project with !project, then Open chat and Enter chat thread. Send tasks and attachments only inside that session's reply thread. No task was submitted.": "先用 !project 选择项目，再打开会话并进入线程。任务和附件请发送到该会话的回复线程。未提交任务。",
+    "Select a project with !project, then Open chat and use the session card's replies. Send tasks and attachments only inside that session's reply thread. No task was submitted.": "先用 !project 选择项目并打开会话，再点击卡片的回复数进入线程。任务和附件请发送到该会话的回复线程。未提交任务。",
     "This chat is still running a task. Wait for it to finish, then click Take control again.": "会话仍有任务运行，请等待完成后再次接管输入。",
     "This control is outdated. Use the latest session card and click Take control again.": "此控件已过期，请在最新会话卡片上重新接管输入。",
     "Resolve the pending approval before changing input mode.": "请先处理待审批请求，再更改输入模式。",

@@ -9,6 +9,25 @@ from slack_codex_bridge.slack import Web
 from test_slack import adapter
 
 
+async def test_new_navigation_guidance_is_chinese_and_native_renames_stay_literal(setup, tmp_path):
+    c,state,backend,_=setup
+    db=tmp_path/'state_5.sqlite'
+    db.touch()
+    db.with_name('session_index.jsonl').write_text(json.dumps({
+        'id':state.binding.codex_thread_id,'thread_name':'Settings'}),encoding='utf-8')
+    c.cfg=replace(c.cfg,native_state_db=db)
+    preferences.save(c.cfg,preferences.Preferences(language='zh-CN'))
+    slack=adapter(c,backend)
+    calls=recording_web(slack,state)
+    await slack.command(None,'a task outside a thread','')
+    assert '点击卡片的回复数' in calls[-1][1]['text']
+    await slack.chat_entry(state)
+    assert calls[-1][1]['text'].startswith('Settings\n')
+    assert '备用网页入口' in calls[-1][1]['text']
+    assert 'Settings' in slack.card(state)[0] and '状态：在线' in slack.card(state)[0]
+    assert not backend.sent
+
+
 def recording_web(slack, state):
     cfg = slack.cfg
     web = Web(cfg, 'synthetic')
@@ -37,7 +56,7 @@ async def test_enter_existing_root_refreshes_language_and_buttons_without_new_ro
     updates = [data for method, data in calls if method == 'chat.update']
     assert len(updates) == 1 and updates[0]['ts'] == state.binding.slack_root_ts
     assert '状态：在线' in updates[0]['text'] and '接管输入' in json.dumps(updates[0]['blocks'], ensure_ascii=False)
-    assert calls[-1][0] == 'chat.postMessage' and '会话控件已就绪' in calls[-1][1]['text']
+    assert calls[-1][0] == 'chat.postMessage' and '点击会话卡片的回复数' in calls[-1][1]['text']
     assert len(await store.bindings()) == 1 and not backend.sent
 
 

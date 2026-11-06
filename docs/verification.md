@@ -1,4 +1,22 @@
-# Current verification and acceptance — 2026-11-05
+# Current verification and acceptance — 2026-11-06
+
+## a23 session usability candidate
+
+See [the seven-item scope and acceptance boundaries](session-usability.md).
+Text input normalization is confined to desktop IPC; callers and App Server
+wire inputs are unchanged. Bounded chat-name metadata and native activity drive
+literal labels and global ordering. Output attribution is handled separately from
+real attachment input; unsupported quota polling is skipped and ordinary refresh
+does not post unknown quota messages. `!quota` is an explicit capability/data query.
+Permanent cards have no self-navigation, and durable root-scoped navigation intent
+prevents repeated or uncertain notices from being posted again.
+
+Two capabilities remain limited: the web fallback can still open a browser on
+mobile; exact-turn IPC Steer remains disabled because the inspected follower
+method cannot atomically honor an expected turn ID. App Server Steer retains its
+exact-target request and rejects an unconfirmed target receipt. Neither mobile
+acceptance nor historical native chat/delete recovery is claimed by local tests.
+This source candidate does not replace the running a22 installation.
 
 
 ## a22 startup after a desktop update

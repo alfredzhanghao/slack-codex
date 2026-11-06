@@ -27,6 +27,7 @@ class State:
     epoch: str = field(default_factory=new_id)
     opened_ms: int = 2**63 - 1
     snapshot: Snapshot | None = None
+    known_title: str = ""
     active_turn: str | None = None
     blocked: bool = False
     blocker_ids: tuple[str, ...] = ()
@@ -112,6 +113,7 @@ class Controller:
             if previous and previous.generation != snapshot.generation:
                 self._suspend(state)
             state.snapshot = snapshot
+            state.known_title = snapshot.thread.title
             if previous and previous.model != snapshot.model:
                 state.effort_options = ()
             state.blocked = bool(blockers)

@@ -22,12 +22,13 @@ from slack_sdk.web.async_client import AsyncWebClient
 
 from .config import Config
 from .controller import Controller, Prepared, State
-from .model import Binding, BridgeError, new_id, now_ms
+from .model import Binding, BridgeError, new_id, now_ms, recent_threads
 from .quota import quota_text
 from .inputs import parse_files, local_file
 from .artifacts import capture, automatic, file_identity
 from . import preferences
 from .project_names import labels as project_labels
+from .thread_names import names as thread_names
 from .i18n import Literal, translate, blocks as translated_blocks
 from . import attachments
 from .skill_view import description as skill_description
@@ -534,12 +535,13 @@ class Slack:
         if "text" not in event and not event.get("files"):
             return None
         text = event.get("text", "")
-        if (event.get("files") and event.get("app_id") in self.cfg.message_apps
-                and re.fullmatch(r"\s*\*发送工具\*\s+<@U[A-Z0-9]+>\s*", text)):
+        output_attribution = bool(event.get("files") and event.get("app_id") in self.cfg.message_apps
+                and re.fullmatch(r"\s*\*发送工具\*\s+<@U[A-Z0-9]+>\s*", text))
+        if output_attribution:
             # A file-only send by an allowlisted integration has no task instruction.
             # Preserve ordinary task bodies, including their visible attribution.
             text = ""
-        return {**event, "text": text}
+        return {**event, "text": text, "bridge_output_attribution": output_attribution}
 
     async def receive(self, client, req):
         prepared = None
@@ -561,7 +563,11 @@ class Slack:
                             text = re.sub(r"\s+\*发送工具\*\s+<@U[A-Z0-9]+>\s*$", "", text)
                         epoch = state.epoch if state else ""
                         parsed = self.parse_task(state, text)
-                        if state and state.root_fault and not (text == "!roots" or text.startswith("!root-replace ")):
+                        if state and event["bridge_output_attribution"] and state.mode == "desktop":
+                            if self.opened_ms <= sent <= now_ms() + 30000 and now_ms() - sent <= self.cfg.message_age_ms:
+                                if await self.controller.store.claim_input(key, state.binding, epoch):
+                                    await self.controller.store.finish_input(key, "output", "integration_output_share")
+                        elif state and state.root_fault and not (text == "!roots" or text.startswith("!root-replace ")):
                             after = self.web.post("This root is unavailable. Use !roots in this DM for explicit recovery.")
                         elif state and is_retrieval(text) and not event.get("files"):
                             if self.opened_ms <= sent <= now_ms() + 30000 and now_ms() - sent <= self.cfg.message_age_ms:
@@ -686,6 +692,10 @@ class Slack:
                 self.staged_inputs.pop(bid, None)
                 self.pending_inputs.discard(bid)
                 await self.controller.store.finish_input(key, "rejected", code)
+                if code == "desktop_input_mode":
+                    await self.web.post("Click Take control on the session card before sending attachments and instructions. "
+                        "The shared files remain in Slack; no task was started.", root=state.binding.slack_root_ts)
+                    return
                 await self.web.post(f"Attachment input did not complete: {code}. No partial text-only task was submitted. "
                     "Inspect !status / operation receipts before retrying; resend all required files with your instruction.",
                     root=state.binding.slack_root_ts)
@@ -761,6 +771,8 @@ class Slack:
             "shared_directory_busy_or_untrusted": "Another task is using this project. Wait for it to finish.",
             "submission_in_progress": "A request is still being submitted. Wait before sending another task.",
         }
+        if "steer" in getattr(self.backend, "desktop_only_controls", ()):
+            reasons["busy_use_explicit_steer"] = "This chat is working. Use Codex desktop to guide the active task; Slack Steer cannot safely target this turn."
         message = ("Delivery could not be confirmed. Do not resend; check !status and the original client."
                    if op.status == "unknown" else reasons.get(op.error_reason,
                    "The request could not be submitted. Check !status for details."))
@@ -1145,12 +1157,18 @@ class Slack:
                 await self.refresh_limits(force=True)
                 await self.controller.refresh(state)
                 await self.render(state, force=True)
-                await self.web.post(quota_text(self.backend, self.cfg), root=root)
             else:
                 history = "\n".join(json.dumps(row, sort_keys=True) for row in list(self.navigation)[-5:])
                 await self.web.post(f"Slack ready: {self.ready}. Backend connected: {getattr(self.backend, 'connected', True)}. "
                     f"Bound chats: {len(self.controller.states)}. Use !project or !tasks.\n"
                     "Recent chat navigation (UTC milliseconds; retained until bridge restart):\n" + (history or "None."))
+        elif text == "!quota":
+            if not getattr(self.backend, "rate_limits_supported", True):
+                await self.web.post("This connection does not provide account limits. View them in Codex desktop.", root=root)
+            else:
+                await self.refresh_limits(force=True)
+                await self.web.post("Account limits are temporarily unavailable." if getattr(self, "quota_fault", None)
+                                    else quota_text(self.backend, self.cfg), root=root)
         elif state and text.startswith("!control "):
             mode = text.split(maxsplit=1)[1]
             if mode == "status":
@@ -1227,11 +1245,11 @@ class Slack:
                 await self.web.post('No explicit file references yet. Use !artifact "PATH". '
                                     'No task is rerun.', root=root)
         elif not text.startswith("!"):
-            await self.web.post("Select a project with !project, then Open chat and Enter chat thread. "
+            await self.web.post("Select a project with !project, then Open chat and use the session card's replies. "
                                 "Send tasks and attachments only inside that session's reply thread. No task was submitted.")
         elif text.startswith("!"):
             await self.web.post("Commands: !project, !task [filter] / !tasks [filter], !projects, !status, !control slack|desktop|status, "
-                                "!steer FULL_TURN_ID -- text, !interrupt FULL_TURN_ID, !op OP_ID. "
+                                "!steer FULL_TURN_ID -- text, !interrupt FULL_TURN_ID, !op OP_ID, !quota. "
                                 "!skills, !skill NAME_OR_PATH -- task, !file \"PATH\" -- task, "
                                 "!compact, !fork, !fork-bind OP_ID, !model [MODEL [EFFORT]], !models, !effort [VALUE]. "
                                 '!artifacts, !artifact "PATH", !review OP_ID, !replace OP_ID. '
@@ -1410,9 +1428,25 @@ class Slack:
         return next((name for root, name in self.project_labels.items() if Path(root) == candidate),
                     candidate.name or "Project")
 
+    def chat_title(self, state):
+        return (thread_names(self.cfg).get(state.binding.codex_thread_id)
+                or (state.snapshot.thread.title if state.snapshot else state.known_title)
+                or state.binding.codex_thread_id[:8])
+
     async def projects(self, page=0):
         await self.refresh_project_labels()
-        projects = sorted({str(p) for p in self.cfg.projects}, key=str.casefold)
+        activity = {}
+        unavailable = False
+        try:
+            rows = await self.backend.list_threads()
+            for thread in rows:
+                if thread.allowed and thread.updated_at_ms:
+                    path = Path(thread.cwd)
+                    activity[path] = max(activity.get(path, 0), thread.updated_at_ms)
+        except BridgeError:
+            unavailable = True
+        projects = sorted({str(p) for p in self.cfg.projects},
+                          key=lambda p: (-activity.get(Path(p), 0), p.casefold()))
         blocks, issued = [], []
         for cwd in projects[page * 20:(page + 1) * 20]:
             intent = Intent("project", choice=cwd)
@@ -1428,7 +1462,14 @@ class Slack:
             blocks.append({"type": "actions", "elements": [{"type": "button",
                 "text": {"type": "plain_text", "text": "More projects"}, "action_id": "bridge_projects_next",
                 "value": self.buttons.issue(intent)}]})
-        ts = await self.web.post(f"Choose a project. {len(projects)} projects; page {page + 1}.", blocks=blocks)
+        heading = f"Choose a project. {len(projects)} projects; page {page + 1}."
+        if unavailable:
+            notice = "Activity unavailable; projects are listed by path order. Refresh to retry."
+            language = preferences.language(self.cfg)
+            notice = translate(notice, language)
+            heading = Literal(translate(heading, language) + "\n" + notice)
+            blocks = text_sections(notice) + blocks
+        ts = await self.web.post(heading, blocks=blocks)
         for intent in issued:
             intent.root = ts
 
@@ -1443,12 +1484,9 @@ class Slack:
             self.last_fault = error.code
             await self.web.post(f"Task query failed: {error.code}. No task submitted.")
             return
-        unique = {}
-        for thread in rows:
-            unique.setdefault(thread.id, thread)
-        rows = list(unique.values())
+        rows = recent_threads(rows)
         rows = [t for t in rows if query.casefold() in (t.title + " " + t.id + " " + t.cwd).casefold()
-                and (not project or t.cwd == project)]
+                and (not project or Path(t.cwd) == Path(project))]
         total = len(rows)
         rows = rows[page * 20:(page + 1) * 20]
         blocks, issued = [], []
@@ -2011,11 +2049,12 @@ class Slack:
                                                 "gui_visibility": "requires_live_acceptance"})
 
     async def refresh_limits(self, *, force=False):
-        if hasattr(self.backend, "refresh_limits"):
+        if getattr(self.backend, "rate_limits_supported", True) and hasattr(self.backend, "refresh_limits"):
             try:
                 await self.backend.refresh_limits(force=force)
+                self.quota_fault = None
             except BridgeError as error:
-                self.last_fault = error.code  # Limits must not break continuation or invent values.
+                self.quota_fault = error.code  # Quota errors do not replace connection/navigation diagnostics.
 
     async def modal(self, state, intent, trigger_id):
         token = self.buttons.issue(Intent("steer_submit", state.binding.binding_id, intent.epoch,
@@ -2108,12 +2147,23 @@ class Slack:
             raise BridgeError("chat_entry_link_unverified")
         guard()
         url = parts._replace(query="").geturl() + f"?thread_ts={root}&cid={self.cfg.dm_id}"
-        text = (f"Chat controls ready. Chat: {binding.codex_thread_id}. Open this Slack thread to continue. No task was submitted."
-                if self.controller._fresh(state) and not state.syncing else
-                f"Chat history ready. Chat: {binding.codex_thread_id}. Live status unavailable; open this chat in Codex desktop, then Refresh. No task was submitted.")
+        navigation_key = f"navigation:{binding.binding_id}:{version}:{root}"
+        if not await self.controller.store.claim_input(navigation_key, binding, state.epoch):
+            return
+        # A durable intent covers both notices, including an uncertain Slack write.
+        # Native replies remain the normal entry; the validated URL is only a fallback.
+        await self.web.post("Session thread ready. After taking control, write your task here. No task started.", root=root)
+        guard()
+        title = self.chat_title(state)
+        language = preferences.language(self.cfg)
+        notice = "Open the session card's replies to continue. Web fallback may open a browser."
+        if not self.controller._fresh(state) or state.syncing:
+            notice += "\nLive status unavailable; open this chat in Codex desktop, then Refresh."
+        text = Literal(title + "\n" + "\n".join(translate(line, language) for line in notice.split("\n")))
         await self.web.post(text, blocks=text_sections(text) + [{"type": "actions", "elements": [{
-            "type": "button", "action_id": "bridge_chat_thread", "text": {"type": "plain_text", "text": "Enter chat thread"},
+            "type": "button", "action_id": "bridge_chat_thread", "text": {"type": "plain_text", "text": "Open thread (web fallback)"},
             "url": url}]}])
+        await self.controller.store.finish_input(navigation_key, "notified")
 
     async def bind(self, thread_id, *, trace=lambda stage, code=None: None):
         async with self.binding_lock:
@@ -2173,7 +2223,7 @@ class Slack:
                         f"(~{context['remaining']:,} / {context['window']:,} tokens; estimate)")
         else:
             headline = "Context remaining: unknown (waiting for native usage telemetry)."
-        title = s.thread.title if s else state.binding.codex_thread_id
+        title = self.chat_title(state)
         project_line = f"{self.project_label(state.binding.project_path)} / {title[:140]}"
         text = (headline + "\n"
                 f"Model: {s.model if s and s.model else 'unconfirmed'} | Effort: {s.effort if s and s.effort else 'unconfirmed'}\n"
@@ -2192,16 +2242,18 @@ class Slack:
             text += "\nQuery blocking operations: " + ", ".join("!op " + opid for opid in state.blocker_ids[:3])
         if getattr(self.backend, "desktop_only_controls", ()):
             text += "\nFor this connection, use Codex desktop for Steer, approvals and model/Skills settings."
+        if online and s.active_turn and "steer" in getattr(self.backend, "desktop_only_controls", ()):
+            text += "\nSteer in Slack is unavailable: this connection cannot guarantee the original active turn. Use Codex desktop."
         if not online:
             text += "\nNo fresh native status. Open this chat in Codex desktop, then Refresh."
         elements = []
         for kind, label in [("desktop", "Return to desktop") if state.mode == "slack" else ("slack", "Take control"),
-                            ("entry", "Enter chat thread"), ("settings", "Settings"), ("status", "Refresh")]:
+                            ("settings", "Settings"), ("status", "Refresh")]:
             token = self.buttons.issue(Intent(kind, state.binding.binding_id, state.epoch, root=state.binding.slack_root_ts))
             elements.append({"type": "button", "text": {"type": "plain_text", "text": label},
                              "action_id": "bridge_" + kind, "value": token})
         if online and s.active_turn:
-            for kind, label in [("steer", "Steer"), ("interrupt", "Stop")]:
+            for kind, label in [("steer", "Steer current task"), ("interrupt", "Stop")]:
                 if kind in getattr(self.backend, "desktop_only_controls", ()):
                     continue
                 token = self.buttons.issue(Intent(kind, state.binding.binding_id, state.epoch, s.active_turn,
@@ -2234,6 +2286,8 @@ class Slack:
             await self.controller.refresh(state)
         except BridgeError as error:
             if error.code in CHAT_STATE_UNAVAILABLE:
+                if state.snapshot:
+                    state.known_title = state.snapshot.thread.title
                 if not state.syncing:
                     self.controller._suspend(state)
                     self.buttons.invalidate(state.binding.binding_id)

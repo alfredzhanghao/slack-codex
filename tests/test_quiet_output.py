@@ -25,9 +25,11 @@ async def test_take_control_success_uses_card_only_and_duplicate_failure_is_thro
     assert 'Transfer refused' not in slack.web.posts[0][0]
 
 
-async def test_limits_are_explicit_status_only(setup):
+async def test_limits_are_explicit_quota_only(setup):
     c, state, backend, _ = setup
     slack = adapter(c, backend)
     assert 'Account limits' not in slack.card(state)[0]
     await slack.command(state, '!status', state.epoch)
+    assert not slack.web.posts
+    await slack.command(state, '!quota', state.epoch)
     assert any('Account limits' in text for text, _ in slack.web.posts)

@@ -50,6 +50,36 @@ async def test_repeated_open_reuses_binding_and_root_without_model_task(setup):
     assert state.binding.slack_root_ts == original.slack_root_ts
     assert len(await store.bindings()) == before and not backend.sent
     assert sum(row['stage'] == 'opened' for row in slack.navigation) == 2
+    assert len(slack.web.posts)==2
+
+
+async def test_navigation_notice_is_durable_across_adapter_recreation(setup):
+    controller,state,backend,_=setup
+    first=adapter(controller,backend)
+    navigation(first,state)
+    await first.chat_entry(state)
+    second=adapter(controller,backend)
+    navigation(second,state)
+    await second.chat_entry(state)
+    assert len(first.web.posts)==2 and not second.web.posts and not backend.sent
+    assert not any(e['action_id']=='bridge_entry' for b in second.card(state)[1]
+                   if b['type']=='actions' for e in b['elements'])
+
+
+async def test_uncertain_navigation_notice_is_not_reposted(setup):
+    from slack_codex_bridge.model import BridgeError
+    controller,state,backend,_=setup
+    slack=adapter(controller,backend)
+    navigation(slack,state)
+    attempted=[]
+    async def post(*args,**kwargs):
+        attempted.append((args,kwargs))
+        raise BridgeError('slack_write_unconfirmed',unknown=True)
+    slack.web.post=post
+    with pytest.raises(BridgeError):
+        await slack.chat_entry(state)
+    await slack.chat_entry(state)
+    assert len(attempted)==1 and not backend.sent
 
 
 async def test_new_click_reopens_but_redelivery_of_same_click_only_acks(setup):
