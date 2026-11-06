@@ -15,7 +15,8 @@ def reopen_window():
     user.FindWindowW.restype = wt.HWND
     user.ShowWindow.argtypes = [wt.HWND, ctypes.c_int]
     user.SetForegroundWindow.argtypes = [wt.HWND]
-    window = user.FindWindowW("SlackCodexSupervisorStatus", "Slack Codex Bridge Supervisor")
+    window = next((handle for title in ("Slack Codex Bridge Supervisor", "Slack Codex 桥接管理程序")
+                   if (handle := user.FindWindowW("SlackCodexSupervisorStatus", title))), None)
     if window:
         user.ShowWindow(window, 9)
         user.SetForegroundWindow(window)
@@ -31,15 +32,14 @@ def main(argv=None):
     state = json.loads((run / "current-run.json").read_text())
     sys.path.insert(0, state["candidate_runtime"])
     from slack_codex_bridge import windows
-    from slack_codex_bridge.config import load
     from slack_codex_bridge.model import BridgeError
     from slack_codex_bridge.supervisor import OperatorAdapter, Supervisor, show_window
-    cfg = load(run / "candidate-config.json")
+    adapter = OperatorAdapter(Path(state["active_deployment"]), "p5", Path(state["active_operator"]))
+    cfg = adapter.cfg
     try:
         with windows.single_instance(cfg.host_id + "-supervisor-launch"):
             try:
                 with windows.single_instance(cfg.host_id + "-supervisor"):
-                    adapter = OperatorAdapter(Path(state["active_deployment"]), "p5", Path(state["active_operator"]))
                     if args.bootstrap:
                         spec = importlib.util.spec_from_file_location("local_supervisor_boundary", args.bootstrap.resolve(strict=True))
                         boundary = importlib.util.module_from_spec(spec)

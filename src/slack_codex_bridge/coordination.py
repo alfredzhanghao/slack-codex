@@ -23,6 +23,11 @@ MAX_FRAME = 32 * 1024 * 1024
 DESKTOP_VERSION = "156.0.8078.48"
 DESKTOP_HASH = "d8b9c500c4dc0fa2fd5a8a3a5592cd637c2a9e625a191d8733a0b7aa8143b11b"
 DESKTOP_PACKAGE = "OpenAI.Codex_26.1027.3384.0_x64__2p2nqsd0c76g0"
+SUPPORTED_BUILDS = frozenset({
+    (DESKTOP_VERSION, DESKTOP_HASH, DESKTOP_PACKAGE),
+    ("157.0.8103.39", "ff3eb0872f1b259a15ca65f785a438f16bd4f904fd6cdfbb23c9f8dd3fb99c31",
+     "OpenAI.Codex_26.1103.3517.0_x64__2p2nqsd0c76g0"),
+})
 
 
 def endpoint(identity):
@@ -41,8 +46,8 @@ def parse_endpoint(value):
 
 
 def supported(proof, cfg):
-    return (cfg.desktop_version == DESKTOP_VERSION and proof.get("desktop_hash") == DESKTOP_HASH and
-            cfg.desktop_exe.parent.parent.name == DESKTOP_PACKAGE)
+    return (cfg.desktop_version, proof.get("desktop_hash"),
+            cfg.desktop_exe.parent.parent.name) in SUPPORTED_BUILDS
 
 
 def native_path(value):

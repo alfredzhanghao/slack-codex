@@ -1,6 +1,18 @@
 # Current verification and acceptance — 2026-11-05
 
 
+## a22 startup after a desktop update
+
+The reusable launcher loads the active deployment profile configuration instead
+of the historical root candidate configuration. Both English and Chinese manager
+window titles can be restored on a second shortcut launch without creating a duplicate.
+Desktop IPC support includes the exact version, executable hash and package identity
+for Codex 26.1103.3517.0 (157.0.8103.39), alongside the previously inspected build.
+Unknown builds remain blocked. Installed protocol inspection confirms unchanged
+initialize, owner discovery, following/snapshot, start-turn and exact-turn interrupt
+message versions. A read-only live snapshot check is required before deployment;
+this is not model/file/Slack acceptance. Native processes must remain running.
+
 ## a21 candidate desktop project display names
 
 Project and conversation pickers show desktop-renamed labels without full project

@@ -141,6 +141,18 @@ def test_same_electron_binary_from_different_package_is_not_protocol_proof(profi
     assert not ipc.supported({"desktop_hash": ipc.DESKTOP_HASH}, different)
 
 
+@pytest.mark.parametrize('build', sorted(ipc.SUPPORTED_BUILDS))
+def test_supported_desktop_build_requires_exact_version_hash_and_package(profile, build):
+    version, digest, package = build
+    cfg = replace(profile, desktop_version=version,
+                  desktop_exe=profile.desktop_exe.parent.parent.parent / package / 'app' / 'ChatGPT.exe')
+    assert ipc.supported({'desktop_hash': digest}, cfg)
+    assert not ipc.supported({'desktop_hash': 'unknown'}, cfg)
+    assert not ipc.supported({'desktop_hash': digest}, replace(cfg, desktop_version='unknown'))
+    changed = cfg.desktop_exe.parent.parent.parent / 'unknown' / 'app' / 'ChatGPT.exe'
+    assert not ipc.supported({'desktop_hash': digest}, replace(cfg, desktop_exe=changed))
+
+
 @pytest.mark.parametrize("address", ["codex-ipc://10/1000?secret=value", "codex-ipc://10:4/1000",
     "codex-ipc://10/0", "codex-ipc://user@10/1000", "codex-ipc://010/1000", "ws://10/1000"])
 def test_endpoint_accepts_only_exact_pid_and_creation_identity(address):
