@@ -79,9 +79,12 @@ async def test_task_picker_covers_all_matches_and_filters_exact_project(setup):
     await slack.tasks()
     text, data = slack.web.posts[-1]
     assert "26" in text and len(data["blocks"]) == 21
+    first_page = data["blocks"]
     await slack.tasks(page=1)
     assert len(slack.web.posts[-1][1]["blocks"]) == 7
-    assert "accessory" not in slack.web.posts[-1][1]["blocks"][-2]
+    shown = first_page + slack.web.posts[-1][1]["blocks"]
+    outside = next(b for b in shown if "Other project" in b.get("text", {}).get("text", ""))
+    assert "accessory" not in outside
     await slack.tasks(project="D:/other-project")
     assert "1; page" in slack.web.posts[-1][0]
     await slack.projects()
@@ -100,7 +103,7 @@ async def test_project_then_tasks_then_session_workflow(setup):
     backend.list_threads = list_threads
     slack = adapter(c, backend)
     await slack.command(None, "!tasks", "")
-    assert "Choose a project" in slack.web.posts[-1][0] and not calls
+    assert "Choose a project" in slack.web.posts[-1][0] and calls == [""]
     await slack.command(None, "!project", "")
     token = next(t for t, i in slack.buttons.tokens.items() if i.kind == "project")
     payload = interaction(c.cfg, token, "200.000001")
@@ -108,9 +111,9 @@ async def test_project_then_tasks_then_session_workflow(setup):
     _, _, selection = await slack.prepare_interaction(payload)
     await selection
     assert slack.selected_project == str(c.cfg.projects[0])
-    assert calls == [slack.selected_project] and "chats: 1;" in slack.web.posts[-1][0]
+    assert calls == ["", "", slack.selected_project] and "chats: 1;" in slack.web.posts[-1][0]
     await slack.command(None, "!tasks", "")
-    assert calls == [slack.selected_project] * 2
+    assert calls == ["", "", slack.selected_project, slack.selected_project]
     slack.lost()
     assert slack.selected_project == "" and not backend.sent
 

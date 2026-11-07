@@ -1,6 +1,7 @@
 """Small transport-independent values shared by the four modules."""
 
 from dataclasses import dataclass, field
+import math
 from time import time
 from uuid import uuid4
 
@@ -30,6 +31,23 @@ class Thread:
     cwd: str
     environment: str = "windows"
     allowed: bool = True
+    updated_at_ms: int | None = None
+
+
+def activity_ms(value):
+    """Native updatedAt / SQLite updated_at are Unix seconds, not UI timestamps."""
+    if (type(value) not in {int, float} or not 0 < value <= 253402300799 or not math.isfinite(value)):
+        return None
+    return int(value * 1000)
+
+
+def recent_threads(rows):
+    unique = {}
+    for thread in rows:
+        previous = unique.get(thread.id)
+        if previous is None or (thread.updated_at_ms or 0) > (previous.updated_at_ms or 0):
+            unique[thread.id] = thread
+    return sorted(unique.values(), key=lambda t: (-(t.updated_at_ms or 0), t.id))
 
 
 @dataclass
@@ -48,6 +66,7 @@ class Snapshot:
     confirmed: set[str] = field(default_factory=set)
     known_turns: set[str] = field(default_factory=set)
     context: dict = field(default_factory=dict)
+    progress: str = ""
 
 
 @dataclass(frozen=True)

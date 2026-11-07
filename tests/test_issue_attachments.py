@@ -141,6 +141,48 @@ async def test_ordinary_attachment_task_body_keeps_literal_attribution(setup, mo
     assert len(backend.sent) == 1 and backend.sent[0].text == text
 
 
+async def test_allowlisted_tool_output_in_desktop_mode_only_records_direction_and_acks(setup, monkeypatch):
+    c,s,backend,store=setup
+    c.cfg=replace(c.cfg,message_apps=('AINTEGRATION',))
+    assert await c.transfer(s,'desktop',s.epoch)
+    slack=adapter(c,backend)
+    seen=downloads(slack,monkeypatch)
+    request=file_event(c.cfg,s,'*发送工具* <@U123>',app_id='AINTEGRATION')
+    for _ in range(2):
+        await slack.receive(slack.socket,request)
+        await drain(slack)
+    assert len(slack.socket.acks)==2 and not seen and not backend.sent and not slack.web.posts
+    assert not await store.pending_input(s.binding.binding_id) and not slack.pending_inputs
+    rows=await store._call(lambda:store.db.execute('select status,code,attachment from input_messages').fetchall())
+    assert [tuple(r) for r in rows]==[('output','integration_output_share',0)]
+
+
+async def test_output_attribution_is_not_trusted_from_unconfigured_source(setup, monkeypatch):
+    c,s,backend,store=setup
+    assert await c.transfer(s,'desktop',s.epoch)
+    slack=adapter(c,backend)
+    seen=downloads(slack,monkeypatch)
+    await slack.receive(slack.socket,file_event(c.cfg,s,'*发送工具* <@U123>',app_id='UNCONFIGURED'))
+    await drain(slack)
+    assert not seen and not backend.sent
+    assert 'Click Take control' in slack.web.posts[-1][0] and 'desktop_input_mode' not in slack.web.posts[-1][0]
+    rows=await store._call(lambda:store.db.execute('select status from input_messages').fetchall())
+    assert [r[0] for r in rows]==['rejected']
+
+
+@pytest.mark.parametrize('field,value',[('user','UOTHER'),('channel','DOTHER')])
+async def test_output_direction_never_bypasses_event_identity(setup,field,value):
+    c,s,backend,store=setup
+    c.cfg=replace(c.cfg,message_apps=('AINTEGRATION',))
+    slack=adapter(c,backend)
+    req=file_event(c.cfg,s,'*发送工具* <@U123>',app_id='AINTEGRATION')
+    req.payload['event'][field]=value
+    await slack.receive(slack.socket,req)
+    await drain(slack)
+    assert not backend.sent and not slack.web.posts
+    assert not await store._call(lambda:store.db.execute('select 1 from input_messages').fetchall())
+
+
 async def test_restart_revokes_staged_context_and_followup_does_not_silently_omit_it(setup, monkeypatch):
     c, s, backend, store = setup
     await opened(c, s)

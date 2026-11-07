@@ -120,7 +120,7 @@ async def peer(profile, monkeypatch):
 
 def test_catalog_is_read_only_scoped_and_excludes_archived(profile):
     before = profile.native_state_db.read_bytes()
-    assert ipc.catalog(profile) == [{"id": "chat-1", "name": "Owned chat", "cwd": str(profile.projects[0])}]
+    assert ipc.catalog(profile) == [{"id": "chat-1", "name": "Owned chat", "cwd": str(profile.projects[0]), "updatedAt": 3}]
     assert ipc.catalog(profile, "outside") == []
     assert profile.native_state_db.read_bytes() == before
 
@@ -141,11 +141,89 @@ def test_same_electron_binary_from_different_package_is_not_protocol_proof(profi
     assert not ipc.supported({"desktop_hash": ipc.DESKTOP_HASH}, different)
 
 
+@pytest.mark.parametrize('build', sorted(ipc.SUPPORTED_BUILDS))
+def test_supported_desktop_build_requires_exact_version_hash_and_package(profile, build):
+    version, digest, package = build
+    cfg = replace(profile, desktop_version=version,
+                  desktop_exe=profile.desktop_exe.parent.parent.parent / package / 'app' / 'ChatGPT.exe')
+    assert ipc.supported({'desktop_hash': digest}, cfg)
+    assert not ipc.supported({'desktop_hash': 'unknown'}, cfg)
+    assert not ipc.supported({'desktop_hash': digest}, replace(cfg, desktop_version='unknown'))
+    changed = cfg.desktop_exe.parent.parent.parent / 'unknown' / 'app' / 'ChatGPT.exe'
+    assert not ipc.supported({'desktop_hash': digest}, replace(cfg, desktop_exe=changed))
+
+
 @pytest.mark.parametrize("address", ["codex-ipc://10/1000?secret=value", "codex-ipc://10:4/1000",
     "codex-ipc://10/0", "codex-ipc://user@10/1000", "codex-ipc://010/1000", "ws://10/1000"])
 def test_endpoint_accepts_only_exact_pid_and_creation_identity(address):
     with pytest.raises(BridgeError, match="unverified_backend_endpoint"):
         ipc.parse_endpoint(address)
+
+
+@pytest.mark.parametrize('item', [
+    {'type':'text','text':'hello'},
+    {'type':'text','text':'hello','text_elements':[]},
+    {'type':'text','text':'hello','text_elements':[{'text_range':{'start':0,'end':5},'placeholder':'hello'}]},
+])
+async def test_text_elements_are_normalized_at_exact_ipc_write_boundary(peer, item):
+    backend, _, messages, _ = peer
+    import copy
+    params={'threadId':'chat-1','input':[item,{'type':'localImage','path':'fixture.png'}]}
+    original=copy.deepcopy(params)
+    await backend.rpc.call('turn/start',params,write=True)
+    request=next(m for m in messages if m['method']=='thread-follower-start-turn')
+    assert params==original
+    assert request['version']==2 and request['targetClientId']=='owner'
+    normalized=request['params']['turnStart']['request']['input']
+    assert normalized[0]['text_elements']==item.get('text_elements',[])
+    assert normalized[1]==params['input'][1]
+
+
+@pytest.mark.parametrize('inputs', [None,[],[None],[{'type':'text','text':'x','text_elements':None}],
+    [{'type':'text','text':'x','text_elements':'bad'}],[{'type':'text','text':'x','text_elements':['bad']}],
+    [{'type':'text','text':None}]])
+async def test_invalid_desktop_text_structure_never_reaches_business_write(peer, inputs):
+    backend,_,messages,_=peer
+    with pytest.raises(BridgeError,match='desktop_ipc_invalid_input'):
+        await backend.rpc.call('turn/start',{'threadId':'chat-1','input':inputs},write=True)
+    assert not any(m['method']=='thread-follower-start-turn' for m in messages)
+
+
+@pytest.mark.parametrize('source',['files','attachments','skill'])
+async def test_file_attachment_and_skill_paths_share_text_normalization(peer, monkeypatch, source):
+    backend,_,messages,_=peer
+    from slack_codex_bridge import desktop as module
+    generated=[{'type':'text','text':'Synthetic document context'},{'type':'localImage','path':'fixture.png'}]
+    if source=='files':
+        monkeypatch.setattr(module,'file_inputs',lambda *_:generated)
+    if source=='attachments':
+        monkeypatch.setattr(module,'attachment_inputs',lambda *_:generated)
+    if source=='skill':
+        async def skills(_):return [{'path':'fixture-skill','name':'Fixture','enabled':True}]
+        backend.skills=skills
+    data={source:['fixture']} if source!='skill' else {'skill':'fixture-skill'}
+    await backend.send(Action('turn_start','chat-1',text='Synthetic instruction',data=data))
+    request=next(m for m in messages if m['method']=='thread-follower-start-turn')
+    inputs=request['params']['turnStart']['request']['input']
+    assert all('text_elements' in item for item in inputs if item['type']=='text')
+    assert all('text_elements' not in item for item in generated)
+
+
+async def test_ipc_quota_capability_is_known_without_request_or_fault(peer):
+    backend,_,messages,_=peer
+    assert backend.rate_limits_supported is False
+    for _ in range(3):
+        await backend.refresh_limits(force=True)
+    assert not any(m['method']=='account/rateLimits/read' for m in messages)
+
+
+async def test_ipc_steer_stays_disabled_without_exact_turn_capability(peer):
+    backend,_,messages,_=peer
+    assert 'steer' in backend.desktop_only_controls
+    with pytest.raises(BridgeError,match='desktop_ipc_unsupported_operation'):
+        await backend.rpc.call('turn/steer',{'threadId':'chat-1','expectedTurnId':'turn-1',
+                                          'input':[{'type':'text','text':'never reroute'}]},write=True)
+    assert not any(m['method'] in {'thread-follower-start-turn','thread-follower-steer-turn'} for m in messages)
 
 
 async def test_real_framing_reads_existing_state_without_resume_or_task(peer):
@@ -156,6 +234,40 @@ async def test_real_framing_reads_existing_state_without_resume_or_task(peer):
     assert await backend.final_messages("chat-1", "turn-1") == ("completed", ["Fixture final"])
     assert {m["method"] for m in messages} <= {
         "initialize", "thread-owner-discovery", "thread-stream-following-changed"}
+
+
+async def test_ipc_snapshot_includes_only_current_public_commentary(peer):
+    backend, current, _, _ = peer
+    current['threadRuntimeStatus'] = {'type': 'active', 'activeFlags': []}
+    turns = current['turnHistory']['history']['entitiesByKey']
+    turns['turn-2'] = {'turnId': 'turn-2', 'turnStartedAtMs': 2, 'status': 'inProgress', 'items': [
+        {'id': 'thought', 'type': 'reasoning', 'content': ['never display'], 'summary': ['never display']},
+        {'id': 'comment-1', 'type': 'agentMessage', 'phase': 'commentary', 'text': 'Earlier update'},
+        {'id': 'command', 'type': 'commandExecution', 'command': 'never display', 'aggregatedOutput': 'never display'},
+        {'id': 'comment-2', 'type': 'agentMessage', 'phase': 'commentary', 'text': 'Latest public update'},
+        {'id': 'final', 'type': 'agentMessage', 'phase': 'final_answer', 'text': 'Final must not become progress'}]}
+    snapshot = await backend.snapshot('chat-1')
+    assert snapshot.active_turn == 'turn-2' and snapshot.progress == 'Latest public update'
+    turns['turn-2']['status'] = 'completed'
+    current['threadRuntimeStatus'] = {'type': 'idle', 'activeFlags': []}
+    backend.rpc.stamps.clear()
+    assert not (await backend.snapshot('chat-1')).progress
+
+
+async def test_ipc_progress_requires_fresh_current_turn_and_discards_unsupported_patch(peer):
+    backend, current, _, _ = peer
+    current['threadRuntimeStatus'] = {'type': 'active', 'activeFlags': []}
+    row = current['turnHistory']['history']['entitiesByKey']['turn-1']
+    row.update(status='inProgress', items=[{'type': 'agentMessage', 'phase': 'commentary', 'text': 'Public update'}])
+    assert (await backend.snapshot('chat-1')).progress == 'Public update'
+    assert backend.rpc.public_progress('chat-1', 'other-turn') == ''
+    assert backend.rpc.public_progress('other-chat', 'turn-1') == ''
+    backend.rpc.stamps['chat-1'] -= 6
+    assert backend.rpc.public_progress('chat-1', 'turn-1') == ''
+    backend.rpc.broadcast({'type': 'broadcast', 'method': 'thread-stream-state-changed', 'version': 11,
+        'sourceClientId': 'owner', 'params': {'hostId': 'local', 'conversationId': 'chat-1',
+        'change': {'type': 'patch', 'revision': 2}}})
+    assert backend.rpc.public_progress('chat-1', 'turn-1') == ''
 
 
 async def test_terminal_readback_requires_time_separated_fresh_snapshots(peer, monkeypatch):
@@ -179,7 +291,7 @@ async def test_native_start_uses_exact_owner_and_preserves_policy(peer):
     writes = [m for m in messages if m["method"] == "thread-follower-start-turn"]
     assert len(writes) == 1 and writes[0]["version"] == 2 and writes[0]["targetClientId"] == "owner"
     assert writes[0]["params"]["turnStart"] == {"request": {
-        "threadId": "chat-1", "input": [{"type": "text", "text": "Fixture only"}]},
+        "threadId": "chat-1", "input": [{"type": "text", "text": "Fixture only", "text_elements": []}]},
         "context": {"inheritThreadSettings": True}}
 
 

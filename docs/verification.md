@@ -1,4 +1,98 @@
-# Current verification and acceptance — 2026-11-04
+# Current verification and acceptance — 2026-11-06
+
+## a23 session usability candidate
+
+See [the seven-item scope and acceptance boundaries](session-usability.md).
+Text input normalization is confined to desktop IPC; callers and App Server
+wire inputs are unchanged. Bounded chat-name metadata and native activity drive
+literal labels and global ordering. Output attribution is handled separately from
+real attachment input; unsupported quota polling is skipped and ordinary refresh
+does not post unknown quota messages. `!quota` is an explicit capability/data query.
+Permanent cards have no self-navigation, and durable root-scoped navigation intent
+prevents repeated or uncertain notices from being posted again.
+
+Two capabilities remain limited: the web fallback can still open a browser on
+mobile; exact-turn IPC Steer remains disabled because the inspected follower
+method cannot atomically honor an expected turn ID. App Server Steer retains its
+exact-target request and rejects an unconfirmed target receipt. Neither mobile
+acceptance nor historical native chat/delete recovery is claimed by local tests.
+This source candidate does not replace the running a22 installation.
+
+
+## a22 startup after a desktop update
+
+The reusable launcher loads the active deployment profile configuration instead
+of the historical root candidate configuration. Both English and Chinese manager
+window titles can be restored on a second shortcut launch without creating a duplicate.
+Desktop IPC support includes the exact version, executable hash and package identity
+for Codex 26.1103.3517.0 (157.0.8103.39), alongside the previously inspected build.
+Unknown builds remain blocked. Installed protocol inspection confirms unchanged
+initialize, owner discovery, following/snapshot, start-turn and exact-turn interrupt
+message versions. A read-only live snapshot check is required before deployment;
+this is not model/file/Slack acceptance. Native processes must remain running.
+
+## a21 candidate desktop project display names
+
+Project and conversation pickers show desktop-renamed labels without full project
+paths. Session cards reuse the labels; exact directory/thread routing is unchanged.
+A bounded selective read extracts only project name metadata from desktop UI state;
+unrelated top-level values are skipped. Names refresh when pickers reopen.
+See [project name source and fallbacks](project-display-names.md).
+
+Read-only local metadata projection matched the desktop project API's names for
+the configured allowlist, including Chinese aliases. Related picker, language,
+state and routing regressions passed. Full supported Windows verification passed
+**855 tests, zero failures/errors/skips**, Ruff, compile, build, archive integrity,
+offline installation and installed imports. Run:
+`.work-issues/verification-5372dcf3-1fd0-4d9b-841c-f0c2424b6c27/`. No native project was renamed, and the running a20 was not replaced.
+
+## a20 candidate session language and public progress
+
+Reopening a known root refreshes its language and live status before linking to
+Slack history. Missing native state shows unknown instead of stale online/idle.
+The pinned IPC adapter exposes the latest public commentary from the exact active
+turn; progress text is literal and no start/completion events are synthesized.
+Status presentation does not release input/unknown protection. See
+[session display](session-display.md).
+
+Targeted regressions reproduced the old failure before the fix; 216 related cases
+and 59 focused IPC/session cases passed after repair. Full supported Windows
+verification passed **831 tests, zero failures/errors/skips**, Ruff, compilation,
+build, archive integrity, offline installation and installed imports. Run:
+`.work-issues/verification-9895004a-e06a-4357-bae7-2b1007851387/`. Read-only native schema inspection confirmed the
+current desktop supplies active status, in-progress turn IDs and public commentary.
+No live Slack task, model task, upload or runtime replacement was performed for a20.
+The deployed a19 stays pinned pending separately authorized replacement.
+
+## a19 candidate output delivery and bilingual preferences
+
+Newly completed Slack-tracked tasks automatically send documents/images below
+30,000,000 bytes by default. Videos, other supported outputs and files at/above
+the threshold receive a one-use direct confirmation. User preferences control
+language, automatic delivery, threshold and the outbound ceiling. Windows and
+Slack bridge UI share the same non-secret preference file; model replies bypass
+translation. Existing deployment configs and native processes are not modified.
+See [behavior and configuration](output-delivery-settings.md).
+
+Full supported Windows verification passed **819 tests, zero failures/errors/skips**,
+Ruff, compile, wheel/sdist checks, offline installation and installed imports.
+Run: `.work-issues/verification-f6808bee-c0bb-483d-8be5-89d8539b94fd/`.
+An earlier run had one existing windowless-shutdown process-exit identity race;
+814 other cases passed. No test or process-identity safeguard was weakened.
+Final focused checks additionally cover the last confirmation-card/path and UI
+keyboard-access changes. Packaging is rebuilt after these final edits.
+
+The 50 added cases cover threshold equality, video/manual confirmation, duplicate
+clicks, file/epoch/binding/root/user/action changes, ACK failure, policy/ceiling
+changes, unknown-upload non-replay, corrupt/atomic preferences, output-only video
+support and literal model replies. Existing completion tests now assert default
+automatic delivery once without a picker.
+
+Computer Use inspected an isolated synthetic Windows supervisor in English and
+Chinese, selected Chinese and clicked Save, then verified the persisted language
+and unchanged 30/100 MB values. The test adapter had no live worker/native start
+capability. No real Slack/model/file acceptance, deployment or native restart was
+performed. The running installation remains separate from this candidate.
 
 ## a18 candidate reusable navigation and command alias
 

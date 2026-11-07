@@ -16,6 +16,8 @@ from . import windows
 from .artifacts import handle_path
 from .config import load
 from .model import BridgeError
+from . import preferences
+from .i18n import translate
 
 
 def fixed_code(error):
@@ -23,7 +25,7 @@ def fixed_code(error):
     return code if isinstance(code, str) and re.fullmatch(r"[a-z0-9_]{1,100}", code) else "supervisor_operation_failed"
 
 
-def instance_description(candidate):
+def instance_description(candidate, language="en"):
     desktop = candidate["desktop"]
     if candidate.get("transport") == "desktop_ipc" and candidate["connectable"]:
         detail = "Existing desktop IPC — loaded chats; native processes stay running"
@@ -38,7 +40,7 @@ def instance_description(candidate):
             "instance_previous_start_unconfirmed": "An earlier native start is unconfirmed; inspect it first",
             "instance_different_user_or_session": "Instance belongs to a different Windows user or login session",
         }.get(candidate["reason"], "Identity or connection unavailable; refresh or verify the profile")
-    return f"Desktop {desktop['pid']} | {detail}"
+    return translate(f"Desktop {desktop['pid']} | {detail}", language)
 
 
 def physical_file(value):
@@ -364,6 +366,8 @@ def show_window(supervisor):
     user.SendMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
     user.SendMessageW.restype = ctypes.c_ssize_t
     user.SetWindowTextW.argtypes = [wt.HWND, wt.LPCWSTR]
+    user.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
+    user.GetWindowTextW.restype = ctypes.c_int
     user.EnableWindow.argtypes = [wt.HWND, wt.BOOL]
     user.ShowWindow.argtypes = [wt.HWND, ctypes.c_int]
     user.SetForegroundWindow.argtypes = [wt.HWND]
@@ -388,6 +392,15 @@ def show_window(supervisor):
     actions = {100: "Start", 101: "Stop", 102: "Restore connection", 103: "Exit",
                104: "Scan instances", 105: "Connect selected"}
     controls, pending, queued = [], None, "Scan instances"
+    try:
+        prefs = preferences.read(supervisor.adapter.cfg)
+    except BridgeError as error:
+        prefs = preferences.Preferences(language=supervisor.adapter.cfg.language)
+        supervisor.last_action_code = fixed_code(error)
+    localized = []
+
+    def tr(text):
+        return translate(text, prefs.language)
     displayed = []
     rendered_ids = None
     confirming = False
@@ -403,17 +416,17 @@ def show_window(supervisor):
         displayed = list(supervisor.candidates)
         user.SendMessageW(selection, 0x014B, 0, 0)  # CB_RESETCONTENT
         for candidate in displayed:
-            text = ctypes.c_wchar_p(instance_description(candidate))
+            text = ctypes.c_wchar_p(instance_description(candidate, prefs.language))
             user.SendMessageW(selection, 0x0143, 0, ctypes.cast(text, ctypes.c_void_p).value)  # CB_ADDSTRING
         user.SendMessageW(selection, 0x014E, -1, 0)  # No implicit selection.
-        user.SetWindowTextW(details, "Select an instance, then Connect selected. Refresh after two minutes." if displayed
-                            else "Refresh instances to choose a connection, or use Start if no desktop is open.")
+        user.SetWindowTextW(details, tr("Select an instance, then Connect selected. Refresh after two minutes." if displayed
+                            else "Refresh instances to choose a connection, or use Start if no desktop is open."))
 
     def message_box(text, title, flags):
         nonlocal confirming
         confirming = True
         try:
-            return user.MessageBoxW(hwnd, text, title, flags)
+            return user.MessageBoxW(hwnd, tr(text), tr(title), flags)
         finally:
             confirming = False
 
@@ -427,15 +440,15 @@ def show_window(supervisor):
                 return
             candidate = displayed[index]
             if not candidate["connectable"]:
-                message_box(instance_description(candidate) +
-                            "\nNo process will be restarted or terminated.", "Cannot attach this instance", 0x40)
+                message_box(instance_description(candidate, prefs.language) +
+                            "\n" + tr("No process will be restarted or terminated."), "Cannot attach this instance", 0x40)
                 return
-            prompt = (instance_description(candidate) + f"\n{candidate['desktop'].get('path', '')}"
-                      f"\nVerified desktop version: {candidate['desktop_version']}"
-                      "\n\nConnect the bridge to this existing instance? Native processes stay running.")
+            prompt = (instance_description(candidate, prefs.language) + f"\n{candidate['desktop'].get('path', '')}"
+                      + "\n" + tr("Verified desktop version:") + " " + candidate['desktop_version']
+                      + "\n\n" + tr("Connect the bridge to this existing instance? Native processes stay running."))
             if candidate.get("transport") == "desktop_ipc":
-                prompt += ("\n\nIPC mode supports loaded chats, tasks, exact-turn Stop and files."
-                           "\nUse the desktop for Steer, approvals, model/Skills settings, Compact and Fork.")
+                prompt += ("\n\n" + tr("IPC mode supports loaded chats, tasks, exact-turn Stop and files.")
+                           + "\n" + tr("Use the desktop for Steer, approvals, model/Skills settings, Compact and Fork."))
             if message_box(prompt, "Confirm existing Codex instance", 0x121) != 1:
                 return  # MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2
             candidate_id = candidate["id"]
@@ -456,12 +469,12 @@ def show_window(supervisor):
                 supervisor.phase, supervisor.code = "attention required", fixed_code(error)
             pending = None
             render_instances()
-            user.SetWindowTextW(label, supervisor.status_text())
+            user.SetWindowTextW(label, tr(supervisor.status_text()))
             if exiting:
                 if not supervisor.managed_run:
                     user.DestroyWindow(hwnd)
                     return
-                user.SetWindowTextW(label, supervisor.status_text() + "\nExit blocked: worker stop is unconfirmed.")
+                user.SetWindowTextW(label, tr(supervisor.status_text()) + "\nExit blocked: worker stop is unconfirmed.")
                 exiting = False
             for button in controls:
                 user.EnableWindow(button, True)
@@ -472,6 +485,42 @@ def show_window(supervisor):
             last_poll = time.monotonic()
             pending = executor.submit(supervisor.poll)
 
+    def save_settings():
+        nonlocal prefs, rendered_ids
+        def number(control):
+            buffer = ctypes.create_unicode_buffer(16)
+            user.GetWindowTextW(control, buffer, len(buffer))
+            if not re.fullmatch(r"[0-9]{1,3}", buffer.value) or not 1 <= int(buffer.value) <= 100:
+                raise ValueError
+            return int(buffer.value) * preferences.MB
+        try:
+            language_index = user.SendMessageW(language_choice, 0x0147, 0, 0)
+            automatic_index = user.SendMessageW(automatic_choice, 0x0147, 0, 0)
+            if language_index not in {0, 1} or automatic_index not in {0, 1}:
+                raise ValueError
+            value = preferences.Preferences(("en", "zh-CN")[language_index], automatic_index == 0,
+                                            number(threshold), number(ceiling)).validate()
+            preferences.save(supervisor.adapter.cfg, value)
+        except ValueError:
+            message_box("Enter whole MB values from 1 to 100.", "Bridge settings", 0x30)
+            return
+        except BridgeError as error:
+            message_box(fixed_code(error), "Bridge settings", 0x30)
+            return
+        prefs = value
+        user.SetWindowTextW(hwnd, tr("Slack Codex Bridge Supervisor"))
+        for control, text in localized:
+            user.SetWindowTextW(control, tr(text))
+        user.SendMessageW(automatic_choice, 0x014B, 0, 0)  # CB_RESETCONTENT
+        for text in ("Enabled", "Disabled"):
+            value_text = ctypes.c_wchar_p(tr(text))
+            user.SendMessageW(automatic_choice, 0x0143, 0, ctypes.cast(value_text, ctypes.c_void_p).value)
+        user.SendMessageW(automatic_choice, 0x014E, 0 if prefs.auto_send else 1, 0)
+        user.SetWindowTextW(label, tr(supervisor.status_text()))
+        rendered_ids = None
+        render_instances()
+        message_box("Saved. Applies to subsequent Windows/Slack UI and file decisions; no Codex restart.", "Bridge settings", 0x40)
+
     def callback(window, msg, wp, lp):
         nonlocal queued, tray_added
         if msg == 0x0111 and (wp & 0xffff) == 106 and (wp >> 16) == 1:
@@ -479,7 +528,10 @@ def show_window(supervisor):
             if 0 <= index < len(displayed):
                 candidate = displayed[index]
                 user.SetWindowTextW(details, candidate["desktop"].get("path", "Identity unavailable") +
-                                    "\n" + instance_description(candidate))
+                                    "\n" + instance_description(candidate, prefs.language))
+            return 0
+        if msg == 0x0111 and (wp & 0xffff) == 110 and (wp >> 16) == 0:
+            save_settings()
             return 0
         if msg == 0x0111 and (wp & 0xffff) in actions and (wp >> 16) == 0:
             queued = actions[wp & 0xffff]
@@ -509,9 +561,9 @@ def show_window(supervisor):
     try:
         if not user.RegisterClassW(ctypes.byref(cls)):
             raise BridgeError("supervisor_window_class_unavailable")
-        hwnd = user.CreateWindowExW(0, cls.name, "Slack Codex Bridge Supervisor", 0x00CA0000,
+        hwnd = user.CreateWindowExW(0, cls.name, tr("Slack Codex Bridge Supervisor"), 0x00CA0000,
                                    0x80000000 - 0x100000000, 0x80000000 - 0x100000000,
-                                   800, 690, None, None, instance, None)
+                                   800, 890, None, None, instance, None)
         if not hwnd:
             raise BridgeError("supervisor_window_unavailable")
         gdi = ctypes.WinDLL("gdi32", use_last_error=True)
@@ -519,12 +571,14 @@ def show_window(supervisor):
         gdi.CreateFontW.restype = wt.HANDLE
         font = gdi.CreateFontW(-16, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI")
         def child(kind, title, x, y, width, height, identifier=0, style=0):
-            control = user.CreateWindowExW(0, kind, title, 0x50000000 | style |
-                                          (0x10000 if kind in {"BUTTON", "COMBOBOX"} else 0),
+            control = user.CreateWindowExW(0, kind, tr(title), 0x50000000 | style |
+                                          (0x10000 if kind in {"BUTTON", "COMBOBOX", "EDIT"} else 0),
                                           x, y, width, height, hwnd, identifier, instance, None)
             if not control:
                 raise BridgeError("supervisor_control_unavailable")
             user.SendMessageW(control, 0x0030, font, 1)
+            if title:
+                localized.append((control, title))
             return control
         child("STATIC", "Slack Codex Bridge — on-demand supervisor", 24, 18, 730, 24)
         label = child("STATIC", supervisor.status_text(), 24, 52, 740, 316)
@@ -536,7 +590,26 @@ def show_window(supervisor):
         controls.append(child("BUTTON", "Connect selected", 176, 494, 160, 32, 105))
         for identifier, x, width in [(100, 24, 100), (101, 136, 100), (102, 248, 170), (103, 430, 100)]:
             controls.append(child("BUTTON", actions[identifier], x, 548, width, 32, identifier))
-        child("STATIC", "Close hides this window. Use Exit to stop the managed bridge and monitoring.", 24, 602, 730, 24)
+        child("STATIC", "Language", 24, 598, 310, 24)
+        language_choice = child("COMBOBOX", "", 24, 626, 310, 120, 107, 0x00200003)
+        child("STATIC", "Automatic document/image delivery", 358, 598, 395, 24)
+        automatic_choice = child("COMBOBOX", "", 358, 626, 395, 120, 108, 0x00200003)
+        for combo, options, selected in [(language_choice, ("English", "中文"), 0 if prefs.language == "en" else 1),
+                                         (automatic_choice, (tr("Enabled"), tr("Disabled")), 0 if prefs.auto_send else 1)]:
+            for text in options:
+                value_text = ctypes.c_wchar_p(text)
+                user.SendMessageW(combo, 0x0143, 0, ctypes.cast(value_text, ctypes.c_void_p).value)
+            user.SendMessageW(combo, 0x014E, selected, 0)
+        child("STATIC", "Automatic threshold (MB; below only)", 24, 670, 310, 24)
+        threshold = child("EDIT", "", 24, 698, 310, 28, 109, 0x00802000)
+        user.SetWindowTextW(threshold, str(max(1, prefs.auto_send_max_bytes // preferences.MB)))
+        child("STATIC", "Maximum output file size (MB; 1–100)", 358, 670, 395, 24)
+        ceiling = child("EDIT", "", 358, 698, 395, 28, 111, 0x00802000)
+        user.SetWindowTextW(ceiling, str(max(1, prefs.max_file_bytes // preferences.MB)))
+        child("STATIC", "Videos always require confirmation. Files at the threshold also require confirmation.", 24, 738, 730, 24)
+        controls.extend([language_choice, automatic_choice, threshold, ceiling,
+                         child("BUTTON", "Save settings", 24, 772, 160, 32, 110)])
+        child("STATIC", "Close hides this window. Use Exit to stop the managed bridge and monitoring.", 24, 818, 730, 24)
         icon_data.cbSize, icon_data.hWnd, icon_data.uID = ctypes.sizeof(Icon), hwnd, 1
         icon_data.uFlags, icon_data.uCallbackMessage, icon_data.hIcon = 7, 0x8001, cls.icon
         icon_data.szTip = "Slack Codex Bridge — click for status"

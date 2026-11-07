@@ -42,6 +42,14 @@ path protections remain enforced.
 Retrieval resolves known outputs in the same session. Unique matches upload current
 bytes; ambiguity opens a chooser. It does not rerun the producing model task.
 
+Newly completed Slack-tracked tasks apply the [output delivery policy](output-delivery-settings.md)
+to explicit references only. Documents/images below the threshold auto-upload;
+videos and larger files require a one-use direct confirmation bound to the exact
+root, epoch, binding version, task and file identity. All sends use durable artifact
+operations and the existing one-attempt upload pipeline. A separate atomic,
+non-secret preference file controls policy and bridge-owned English/Chinese UI
+without changing pinned deployment files. Model replies bypass translation.
+
 ## Operations and presentation
 
 The on-demand supervisor uses the pinned operator, exact identities and actual TCP
@@ -59,3 +67,22 @@ also use its existing coordination pipe: verify the pipe server's exact desktop
 identity and follow the chat's owner instead of launching another app-server.
 This route has an explicit capability boundary; unsupported private transports
 remain non-connectable. See [instance selection](adaptive-instance-selection.md).
+
+
+## Session presentation freshness
+
+Entry navigation refreshes a reused root under the current language before
+posting the thread link. Unavailable per-chat state renders unknown instead of
+retaining an old online/idle card. Fresh native active status determines working
+presentation, while exact-turn controls and terminal corroboration stay separate.
+IPC snapshots expose only current-turn public commentary as literal progress;
+reasoning/tool output and older turns are excluded. See [session display](session-display.md).
+
+
+## Project display metadata
+
+Project labels are read from the desktop UI metadata next to the configured
+state database and projected onto exact existing allowlist entries. Pickers refresh
+the cache, show names rather than directories, and preserve literal native names
+under localization. Button capabilities retain canonical paths and native thread
+IDs; presentation never expands admission. See [project display names](project-display-names.md).

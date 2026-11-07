@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "slack-codex-bridge"
-version = "0.3.0a18"
+version = "0.3.0a23"
 description = "Personal Windows Slack remote control for a verified Codex desktop instance"
 readme = "README.md"
 license = "MIT"

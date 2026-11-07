@@ -149,9 +149,10 @@ async def test_existing_root_is_verified_then_linked_without_duplicate_root(setu
     slack = adapter(c, backend)
     navigation(slack, state)
     await click(slack, c.cfg, state.binding.codex_thread_id)
-    assert len(slack.web.posts) == 1 and not backend.sent and len(await store.bindings()) == 1
-    button = slack.web.posts[0][1]['blocks'][-1]['elements'][0]
-    assert button['text']['text'] == 'Enter chat thread'
+    assert len(slack.web.posts) == 2 and not backend.sent and len(await store.bindings()) == 1
+    assert slack.web.posts[0][1]['root'] == state.binding.slack_root_ts
+    button = slack.web.posts[-1][1]['blocks'][-1]['elements'][0]
+    assert button['text']['text'] == 'Open thread (web fallback)'
     assert button['url'] == 'https://example.slack.com/archives/D123/p100000001?thread_ts=100.000001&cid=D123'
     assert list(slack.navigation)[-1]['stage'] == 'opened'
 
@@ -276,8 +277,8 @@ async def test_two_fresh_open_requests_create_one_root_and_link_to_it(setup):
     slack.web.call = call
     await asyncio.gather(slack.open_chat(tid), slack.open_chat(tid))
     roots = [text for text, _ in slack.web.posts if text.startswith('Bound Codex chat')]
-    entries = [data for text, data in slack.web.posts if text.startswith('Chat controls ready')]
-    assert len(roots) == 1 and len(entries) == 2
+    entries = [data for text, data in slack.web.posts if 'Web fallback may open a browser' in text]
+    assert len(roots) == 1 and len(entries) == 1
     assert len([b for b in await store.bindings() if b.codex_thread_id == tid]) == 1
     assert all(data['blocks'][-1]['elements'][0]['url'].endswith('thread_ts=200.000001&cid=D123') for data in entries)
     assert not backend.sent

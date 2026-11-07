@@ -9,8 +9,24 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
-from .inputs import local_file
+from .inputs import local_file, SUPPORTED
 from .model import BridgeError
+
+VIDEOS = frozenset({".mp4", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".m4v", ".mpeg", ".mpg"})
+DOCUMENTS_IMAGES = frozenset({".txt", ".md", ".csv", ".tsv", ".json", ".yaml", ".yml", ".xml", ".log",
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp", ".rtf",
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".svg"})
+OUTPUT_SUPPORTED = SUPPORTED | VIDEOS | DOCUMENTS_IMAGES
+
+
+def automatic(path, size, prefs):
+    return (prefs.auto_send and Path(path).suffix.casefold() in DOCUMENTS_IMAGES
+            and size < prefs.auto_send_max_bytes and size <= prefs.max_file_bytes)
+
+
+def file_identity(path):
+    value = path.stat()
+    return [value.st_size, value.st_mtime_ns, value.st_ino]
 
 
 def linked_files(text: str) -> list[str]:
@@ -56,9 +72,9 @@ def handle_path(file) -> Path:
 
 def capture(cfg, cwd: str, value: str) -> Artifact:
     try:
-        path = local_file(cfg, cwd, value, max_bytes=cfg.artifact_max_bytes)
+        path = local_file(cfg, cwd, value, max_bytes=cfg.artifact_max_bytes, output=True)
         with path.open("rb") as file:
-            actual = local_file(cfg, cwd, str(handle_path(file)), max_bytes=cfg.artifact_max_bytes)
+            actual = local_file(cfg, cwd, str(handle_path(file)), max_bytes=cfg.artifact_max_bytes, output=True)
             if actual != path:
                 raise BridgeError("artifact_path_changed")
             before = os.fstat(file.fileno())

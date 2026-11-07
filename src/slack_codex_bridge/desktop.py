@@ -15,7 +15,8 @@ from .approval import PendingRequest, presentation, response
 from .inputs import file_inputs
 from .attachments import attachment_inputs
 from .artifacts import linked_files
-from .model import Action, BridgeError, Event, Receipt, Snapshot, Thread, new_id
+from .model import Action, BridgeError, Event, Receipt, Snapshot, Thread, new_id, activity_ms, recent_threads
+from .thread_names import names as thread_names
 
 THREAD_SOURCES = ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview",
                   "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"]
@@ -317,8 +318,11 @@ class Desktop:
                              or environments[0].get("environmentId") != self.cfg.environment_id
                              or Path(environments[0].get("cwd", "")).resolve() != Path(cwd).resolve()):
             raise BridgeError("thread_environment_unverified")
-        return Thread(tid, str(obj.get("name") or obj.get("preview") or tid)[:160], cwd,
-                      allowed=allowed)
+        renamed = thread_names(self.cfg).get(tid) if allowed else None
+        title = next((value for value in (obj.get("name"), obj.get("title"), obj.get("preview"))
+                      if isinstance(value, str) and value.strip() and value != tid), tid[:8])
+        return Thread(tid, (renamed or title)[:160], cwd,
+                      allowed=allowed, updated_at_ms=activity_ms(obj.get("updatedAt", obj.get("updated_at"))))
 
     async def get_thread(self, thread_id: str) -> Thread:
         thread = self._thread(await self._metadata(thread_id))
@@ -363,7 +367,7 @@ class Desktop:
             for item in value.get("data", []):
                 # Defend against a backend returning internal sessions despite the filter.
                 source = item.get("source", "unknown")
-                if not isinstance(source, str) or source not in MAIN_THREAD_SOURCES:
+                if not isinstance(source, str) or source not in MAIN_THREAD_SOURCES or item.get("archived"):
                     continue
                 try:
                     cwd = item.get("cwd")
@@ -371,12 +375,14 @@ class Desktop:
                         allowed_cwds[cwd] = self.cfg.allows(cwd)
                     thread = self._thread(item, discovery=True,
                                           allowed=allowed_cwds.get(cwd) if isinstance(cwd, str) else None)
-                    result.setdefault(thread.id, thread)
+                    previous = result.get(thread.id)
+                    if previous is None or (thread.updated_at_ms or 0) > (previous.updated_at_ms or 0):
+                        result[thread.id] = thread
                 except BridgeError:
                     continue
             cursor = value.get("nextCursor")
             if not cursor:
-                return list(result.values())
+                return recent_threads(result.values())
             if cursor in seen:
                 raise BridgeError("thread_listing_incomplete")
             seen.add(cursor)
@@ -451,7 +457,9 @@ class Desktop:
                         effort=None if (thread_id, active) in self.rerouted else resumed.get("reasoningEffort"),
                         generation=self.rpc.generation, terminals=terminals, confirmed=confirmed,
                         known_turns={x["id"] for x in rows if x.get("id")},
-                        context=dict(self.context_usage.get(thread_id, {})))
+                        context=dict(self.context_usage.get(thread_id, {})),
+                        progress=self.rpc.public_progress(thread_id, active)
+                        if hasattr(self.rpc, "public_progress") else "")
 
     async def send(self, action: Action) -> Receipt:
         if action.kind == "turn_start":
@@ -620,7 +628,13 @@ class Desktop:
                 self.limits[str(name)] = ({"name": bucket.get("limitName") or str(name), **windows},
                                          time.time(), self.rpc.generation)
 
+    @property
+    def rate_limits_supported(self):
+        return getattr(self.rpc, "rate_limits_supported", True)
+
     async def refresh_limits(self, *, force=False):
+        if not self.rate_limits_supported:
+            return
         if not force and self.limits_read_at is not None and time.monotonic() - self.limits_read_at < self.cfg.quota_refresh:
             return
         self.limits_read_at = time.monotonic()
